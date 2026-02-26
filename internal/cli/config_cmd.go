@@ -47,6 +47,7 @@ func runConfig(cmd *cobra.Command, args []string) error {
 		Title("What would you like to change?").
 		Options(
 			huh.NewOption("Nothing (exit)", "none"),
+			huh.NewOption("Gmail account (re-authenticate)", "gmail"),
 			huh.NewOption("AI provider / model", "ai"),
 			huh.NewOption("Labels", "labels"),
 			huh.NewOption("Poll interval", "poll"),
@@ -57,6 +58,31 @@ func runConfig(cmd *cobra.Command, args []string) error {
 	switch editChoice {
 	case "none":
 		return nil
+
+	case "gmail":
+		ui.Dim("A browser window will open for you to sign in.")
+		fmt.Println()
+
+		_, err := gmailpkg.Authenticate(config.CredentialsPath())
+		if err != nil {
+			return fmt.Errorf("Gmail authentication failed: %w", err)
+		}
+
+		ts, err := gmailpkg.TokenSource(config.CredentialsPath())
+		if err != nil {
+			return fmt.Errorf("creating token source: %w", err)
+		}
+		client, err := gmailpkg.NewClient(context.Background(), ts)
+		if err != nil {
+			return fmt.Errorf("creating Gmail client: %w", err)
+		}
+		email, _, err := client.GetProfile(context.Background())
+		if err != nil {
+			return fmt.Errorf("getting profile: %w", err)
+		}
+
+		cfg.Gmail.Email = email
+		ui.Success(fmt.Sprintf("Connected as %s", email))
 
 	case "ai":
 		providerNames := ai.ProviderNames()
