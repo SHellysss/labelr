@@ -4,3 +4,4 @@ bin/
 .labelr/
 .DS_Store
 .env
+.worktrees/
