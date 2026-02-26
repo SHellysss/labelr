@@ -1,0 +1,29 @@
+version: 2
+
+builds:
+  - main: ./cmd/labelr
+    binary: labelr
+    ldflags:
+      - -X 'github.com/pankajbeniwal/labelr/internal/gmail.ClientID={{ .Env.GOOGLE_CLIENT_ID }}'
+      - -X 'github.com/pankajbeniwal/labelr/internal/gmail.ClientSecret={{ .Env.GOOGLE_CLIENT_SECRET }}'
+    goos:
+      - darwin
+      - linux
+      - windows
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - format: tar.gz
+    name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        format: zip
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^chore:"
