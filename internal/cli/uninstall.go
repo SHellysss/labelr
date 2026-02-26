@@ -7,6 +7,7 @@ import (
 	"github.com/charmbracelet/huh"
 	"github.com/pankajbeniwal/labelr/internal/config"
 	"github.com/pankajbeniwal/labelr/internal/service"
+	"github.com/pankajbeniwal/labelr/internal/ui"
 	"github.com/spf13/cobra"
 )
 
@@ -21,9 +22,11 @@ func NewUninstallCmd() *cobra.Command {
 func runUninstall(cmd *cobra.Command, args []string) error {
 	mgr := service.Detect()
 	if mgr != nil {
-		fmt.Println("Removing background service...")
+		ui.Info("Removing background service...")
 		if err := mgr.Uninstall(); err != nil {
-			fmt.Printf("Warning: could not remove service: %v\n", err)
+			ui.Error(fmt.Sprintf("Could not remove service: %v", err))
+		} else {
+			ui.Success("Background service removed")
 		}
 	}
 
@@ -37,9 +40,9 @@ func runUninstall(cmd *cobra.Command, args []string) error {
 		if err := os.RemoveAll(config.Dir()); err != nil {
 			return fmt.Errorf("removing data: %w", err)
 		}
-		fmt.Println("All labelr data deleted.")
+		ui.Success("All labelr data deleted")
 	}
 
-	fmt.Println("labelr uninstalled.")
+	ui.Success("labelr uninstalled")
 	return nil
 }
