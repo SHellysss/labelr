@@ -1,0 +1,164 @@
+package cli
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/charmbracelet/huh"
+	"github.com/pankajbeniwal/labelr/internal/ai"
+	"github.com/pankajbeniwal/labelr/internal/config"
+	"github.com/pankajbeniwal/labelr/internal/db"
+	gmailpkg "github.com/pankajbeniwal/labelr/internal/gmail"
+	"github.com/spf13/cobra"
+)
+
+func NewConfigCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "config",
+		Short: "View or edit configuration",
+		RunE:  runConfig,
+	}
+}
+
+func runConfig(cmd *cobra.Command, args []string) error {
+	cfg, err := config.Load(config.DefaultPath())
+	if err != nil {
+		return fmt.Errorf("loading config: %w", err)
+	}
+
+	// Show current config
+	fmt.Printf("Gmail:     %s\n", cfg.Gmail.Email)
+	fmt.Printf("Provider:  %s\n", cfg.AI.Provider)
+	fmt.Printf("Model:     %s\n", cfg.AI.Model)
+	fmt.Printf("Base URL:  %s\n", cfg.AI.BaseURL)
+	fmt.Printf("Poll:      %ds\n", cfg.PollInterval)
+	fmt.Printf("\nLabels:\n")
+	for _, l := range cfg.Labels {
+		fmt.Printf("  - %s: %s\n", l.Name, l.Description)
+	}
+
+	// Ask what to edit
+	var editChoice string
+	huh.NewSelect[string]().
+		Title("What would you like to change?").
+		Options(
+			huh.NewOption("Nothing (exit)", "none"),
+			huh.NewOption("AI provider / model", "ai"),
+			huh.NewOption("Labels", "labels"),
+			huh.NewOption("Poll interval", "poll"),
+		).
+		Value(&editChoice).
+		Run()
+
+	switch editChoice {
+	case "none":
+		return nil
+
+	case "ai":
+		providerNames := ai.ProviderNames()
+		var selectedProvider string
+		huh.NewSelect[string]().
+			Title("Which AI provider?").
+			Options(huh.NewOptions(providerNames...)...).
+			Value(&selectedProvider).
+			Run()
+
+		provider, _ := ai.GetProvider(selectedProvider)
+		cfg.AI.Provider = selectedProvider
+		cfg.AI.BaseURL = provider.BaseURL
+
+		var model string
+		huh.NewInput().Title("Which model?").Value(&model).Run()
+		cfg.AI.Model = model
+
+		if provider.EnvKey != "" {
+			var apiKey string
+			huh.NewInput().Title("API key:").Value(&apiKey).EchoMode(huh.EchoModePassword).Run()
+			if apiKey != "" {
+				cfg.AI.APIKey = apiKey
+			}
+		}
+
+	case "labels":
+		options := make([]huh.Option[string], len(cfg.Labels))
+		for i, l := range cfg.Labels {
+			options[i] = huh.NewOption(fmt.Sprintf("%s — %s", l.Name, l.Description), l.Name).Selected(true)
+		}
+
+		selectedNames := make([]string, len(cfg.Labels))
+		for i, l := range cfg.Labels {
+			selectedNames[i] = l.Name
+		}
+
+		huh.NewMultiSelect[string]().
+			Title("Keep which labels? (deselect to remove)").
+			Options(options...).
+			Value(&selectedNames).
+			Run()
+
+		selectedSet := make(map[string]bool)
+		for _, n := range selectedNames {
+			selectedSet[n] = true
+		}
+		var kept []config.Label
+		for _, l := range cfg.Labels {
+			if selectedSet[l.Name] {
+				kept = append(kept, l)
+			}
+		}
+		cfg.Labels = kept
+
+		// Add new labels
+		for {
+			var addMore bool
+			huh.NewConfirm().Title("Add a custom label?").Value(&addMore).Run()
+			if !addMore {
+				break
+			}
+			var name, description string
+			huh.NewInput().Title("Label name:").Value(&name).Run()
+			huh.NewInput().Title("Description:").Value(&description).Run()
+			if name != "" {
+				cfg.Labels = append(cfg.Labels, config.Label{Name: name, Description: description})
+				fmt.Printf("  Added: %s\n", name)
+			}
+		}
+
+		// Create any new labels in Gmail
+		ts, tsErr := gmailpkg.TokenSource(config.CredentialsPath())
+		if tsErr == nil {
+			client, clientErr := gmailpkg.NewClient(context.Background(), ts)
+			if clientErr == nil {
+				store, dbErr := db.Open(config.DBPath())
+				if dbErr == nil {
+					defer store.Close()
+					for _, l := range cfg.Labels {
+						if _, err := store.GetLabelMapping(l.Name); err != nil {
+							// New label, create in Gmail
+							gmailID, createErr := client.CreateLabel(context.Background(), l.Name)
+							if createErr == nil {
+								store.SetLabelMapping(l.Name, gmailID)
+								fmt.Printf("  Created in Gmail: %s\n", l.Name)
+							}
+						}
+					}
+				}
+			}
+		}
+
+	case "poll":
+		var intervalStr string
+		huh.NewInput().Title("Poll interval (seconds):").Value(&intervalStr).Run()
+		var interval int
+		fmt.Sscanf(intervalStr, "%d", &interval)
+		if interval > 0 {
+			cfg.PollInterval = interval
+		}
+	}
+
+	if err := config.Save(config.DefaultPath(), cfg); err != nil {
+		return fmt.Errorf("saving config: %w", err)
+	}
+	fmt.Println("Config saved.")
+	return nil
+}

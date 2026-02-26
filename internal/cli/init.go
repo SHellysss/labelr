@@ -23,7 +23,8 @@ func NewInitCmd() *cobra.Command {
 }
 
 func runInit(cmd *cobra.Command, args []string) error {
-	fmt.Println("Welcome to labelr! Let's get you set up.\n")
+	fmt.Println("Welcome to labelr! Let's get you set up.")
+	fmt.Println()
 
 	// Ensure config directory exists
 	if err := os.MkdirAll(config.Dir(), 0700); err != nil {
@@ -32,7 +33,8 @@ func runInit(cmd *cobra.Command, args []string) error {
 
 	// Step 1: Gmail OAuth
 	fmt.Println("Step 1: Connect your Gmail account")
-	fmt.Println("A browser window will open for you to sign in with Google.\n")
+	fmt.Println("A browser window will open for you to sign in with Google.")
+	fmt.Println()
 
 	var proceed bool
 	huh.NewConfirm().

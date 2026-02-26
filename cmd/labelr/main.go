@@ -18,10 +18,17 @@ func main() {
 		Version: version,
 	}
 
-	rootCmd.AddCommand(cli.NewInitCmd())
-	rootCmd.AddCommand(cli.NewDaemonCmd())
-	rootCmd.AddCommand(cli.NewStartCmd())
-	rootCmd.AddCommand(cli.NewStopCmd())
+	rootCmd.AddCommand(
+		cli.NewInitCmd(),
+		cli.NewDaemonCmd(),
+		cli.NewStartCmd(),
+		cli.NewStopCmd(),
+		cli.NewStatusCmd(),
+		cli.NewLogsCmd(),
+		cli.NewConfigCmd(),
+		cli.NewSyncCmd(),
+		cli.NewUninstallCmd(),
+	)
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
