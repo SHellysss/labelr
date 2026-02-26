@@ -19,6 +19,7 @@ func main() {
 	}
 
 	rootCmd.AddCommand(cli.NewInitCmd())
+	rootCmd.AddCommand(cli.NewDaemonCmd())
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
