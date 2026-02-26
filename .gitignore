@@ -3,3 +3,4 @@ bin/
 *.log
 .labelr/
 .DS_Store
+.env

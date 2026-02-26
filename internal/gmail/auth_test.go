@@ -41,9 +41,13 @@ func TestSaveAndLoadToken(t *testing.T) {
 }
 
 func TestOAuthConfig(t *testing.T) {
+	ClientID = "test-client-id"
+	ClientSecret = "test-client-secret"
+	defer func() { ClientID = ""; ClientSecret = "" }()
+
 	cfg := oauthConfig("http://localhost:8080/callback")
-	if cfg.ClientID == "" {
-		t.Error("expected non-empty client ID")
+	if cfg.ClientID != "test-client-id" {
+		t.Errorf("got client ID %q, want test-client-id", cfg.ClientID)
 	}
 	if len(cfg.Scopes) != 2 {
 		t.Errorf("got %d scopes, want 2", len(cfg.Scopes))

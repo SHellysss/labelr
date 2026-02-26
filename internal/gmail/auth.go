@@ -16,16 +16,16 @@ import (
 	gmailapi "google.golang.org/api/gmail/v1"
 )
 
-// TODO: Replace with actual published OAuth client credentials
-const (
-	clientID     = "YOUR_CLIENT_ID.apps.googleusercontent.com"
-	clientSecret = "YOUR_CLIENT_SECRET"
+// Set via -ldflags at build time. See Makefile.
+var (
+	ClientID     string
+	ClientSecret string
 )
 
 func oauthConfig(redirectURL string) *oauth2.Config {
 	return &oauth2.Config{
-		ClientID:     clientID,
-		ClientSecret: clientSecret,
+		ClientID:     ClientID,
+		ClientSecret: ClientSecret,
 		RedirectURL:  redirectURL,
 		Scopes: []string{
 			gmailapi.GmailModifyScope,
