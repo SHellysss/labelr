@@ -129,7 +129,20 @@ type savingTokenSource struct {
 func (s *savingTokenSource) Token() (*oauth2.Token, error) {
 	token, err := s.src.Token()
 	if err != nil {
-		return nil, err
+		// Token refresh failed — try reloading from disk in case
+		// credentials were updated by a fresh 'labelr init'
+		reloaded, loadErr := loadToken(s.path)
+		if loadErr != nil {
+			return nil, err // return original error
+		}
+		if reloaded.AccessToken != s.prev.AccessToken || reloaded.RefreshToken != s.prev.RefreshToken {
+			// Credentials file was updated, rebuild token source
+			cfg := oauthConfig("")
+			s.src = cfg.TokenSource(context.Background(), reloaded)
+			s.prev = reloaded
+			return s.src.Token()
+		}
+		return nil, err // same token on disk, nothing to retry
 	}
 	// If token was refreshed, save it
 	if token.AccessToken != s.prev.AccessToken {

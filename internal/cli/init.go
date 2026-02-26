@@ -10,6 +10,7 @@ import (
 	"github.com/pankajbeniwal/labelr/internal/config"
 	"github.com/pankajbeniwal/labelr/internal/db"
 	gmailpkg "github.com/pankajbeniwal/labelr/internal/gmail"
+	"github.com/pankajbeniwal/labelr/internal/service"
 	"github.com/spf13/cobra"
 )
 
@@ -209,6 +210,20 @@ func runInit(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	fmt.Println("\nSetup complete! Run 'labelr start' to begin labeling emails.")
+	// Restart daemon if it's currently running so it picks up new credentials
+	mgr := service.Detect()
+	if mgr != nil {
+		if running, _ := mgr.IsRunning(); running {
+			fmt.Println("\nRestarting daemon with new credentials...")
+			mgr.Stop()
+			mgr.Start()
+			fmt.Println("Daemon restarted.")
+		} else {
+			fmt.Println("\nSetup complete! Run 'labelr start' to begin labeling emails.")
+		}
+	} else {
+		fmt.Println("\nSetup complete! Run 'labelr start' to begin labeling emails.")
+	}
+
 	return nil
 }
