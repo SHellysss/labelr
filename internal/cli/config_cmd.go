@@ -9,6 +9,7 @@ import (
 	"github.com/pankajbeniwal/labelr/internal/config"
 	"github.com/pankajbeniwal/labelr/internal/db"
 	gmailpkg "github.com/pankajbeniwal/labelr/internal/gmail"
+	"github.com/pankajbeniwal/labelr/internal/ui"
 	"github.com/spf13/cobra"
 )
 
@@ -27,14 +28,17 @@ func runConfig(cmd *cobra.Command, args []string) error {
 	}
 
 	// Show current config
-	fmt.Printf("Gmail:     %s\n", cfg.Gmail.Email)
-	fmt.Printf("Provider:  %s\n", cfg.AI.Provider)
-	fmt.Printf("Model:     %s\n", cfg.AI.Model)
-	fmt.Printf("Base URL:  %s\n", cfg.AI.BaseURL)
-	fmt.Printf("Poll:      %ds\n", cfg.PollInterval)
-	fmt.Printf("\nLabels:\n")
+	fmt.Println()
+	ui.KeyValue("Gmail", cfg.Gmail.Email)
+	ui.KeyValue("Provider", cfg.AI.Provider)
+	ui.KeyValue("Model", cfg.AI.Model)
+	ui.KeyValue("Base URL", cfg.AI.BaseURL)
+	ui.KeyValue("Poll", fmt.Sprintf("%ds", cfg.PollInterval))
+
+	fmt.Println()
+	fmt.Printf("  %s\n", ui.BoldStr("Labels"))
 	for _, l := range cfg.Labels {
-		fmt.Printf("  - %s: %s\n", l.Name, l.Description)
+		fmt.Printf("    %s: %s\n", l.Name, l.Description)
 	}
 
 	// Ask what to edit
@@ -67,8 +71,12 @@ func runConfig(cmd *cobra.Command, args []string) error {
 		cfg.AI.Provider = selectedProvider
 		cfg.AI.BaseURL = provider.BaseURL
 
-		var model string
-		huh.NewInput().Title("Which model?").Value(&model).Run()
+		// Dynamic model selection
+		model, err := selectModel(selectedProvider)
+		if err != nil {
+			ui.Error(err.Error())
+			return nil
+		}
 		cfg.AI.Model = model
 
 		if provider.EnvKey != "" {
@@ -108,7 +116,6 @@ func runConfig(cmd *cobra.Command, args []string) error {
 		}
 		cfg.Labels = kept
 
-		// Add new labels
 		for {
 			var addMore bool
 			huh.NewConfirm().Title("Add a custom label?").Value(&addMore).Run()
@@ -120,11 +127,10 @@ func runConfig(cmd *cobra.Command, args []string) error {
 			huh.NewInput().Title("Description:").Value(&description).Run()
 			if name != "" {
 				cfg.Labels = append(cfg.Labels, config.Label{Name: name, Description: description})
-				fmt.Printf("  Added: %s\n", name)
+				ui.Success(fmt.Sprintf("Added: %s", name))
 			}
 		}
 
-		// Create any new labels in Gmail
 		ts, tsErr := gmailpkg.TokenSource(config.CredentialsPath())
 		if tsErr == nil {
 			client, clientErr := gmailpkg.NewClient(context.Background(), ts)
@@ -134,11 +140,10 @@ func runConfig(cmd *cobra.Command, args []string) error {
 					defer store.Close()
 					for _, l := range cfg.Labels {
 						if _, err := store.GetLabelMapping(l.Name); err != nil {
-							// New label, create in Gmail
 							gmailID, createErr := client.CreateLabel(context.Background(), l.Name)
 							if createErr == nil {
 								store.SetLabelMapping(l.Name, gmailID)
-								fmt.Printf("  Created in Gmail: %s\n", l.Name)
+								ui.Success(fmt.Sprintf("Created in Gmail: %s", l.Name))
 							}
 						}
 					}
@@ -159,6 +164,6 @@ func runConfig(cmd *cobra.Command, args []string) error {
 	if err := config.Save(config.DefaultPath(), cfg); err != nil {
 		return fmt.Errorf("saving config: %w", err)
 	}
-	fmt.Println("Config saved.")
+	ui.Success("Config saved")
 	return nil
 }

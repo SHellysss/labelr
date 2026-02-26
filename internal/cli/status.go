@@ -2,10 +2,12 @@ package cli
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/pankajbeniwal/labelr/internal/config"
 	"github.com/pankajbeniwal/labelr/internal/db"
 	"github.com/pankajbeniwal/labelr/internal/service"
+	"github.com/pankajbeniwal/labelr/internal/ui"
 	"github.com/spf13/cobra"
 )
 
@@ -18,24 +20,29 @@ func NewStatusCmd() *cobra.Command {
 }
 
 func runStatus(cmd *cobra.Command, args []string) error {
-	// Check running status
 	mgr := service.Detect()
 	running := false
 	if mgr != nil {
 		running, _ = mgr.IsRunning()
 	}
 
-	if running {
-		fmt.Println("Status:    running")
-	} else {
-		fmt.Println("Status:    stopped")
-	}
+	fmt.Println()
 
-	// Load config for provider info
+	// Status line
 	cfg, err := config.Load(config.DefaultPath())
 	if err == nil {
-		fmt.Printf("Provider:  %s / %s\n", cfg.AI.Provider, cfg.AI.Model)
-		fmt.Printf("Account:   %s\n", cfg.Gmail.Email)
+		statusText := "stopped"
+		if running {
+			statusText = "running"
+		}
+		fmt.Printf("  %s %-12s %s / %s\n", ui.StatusDot(running), statusText, cfg.AI.Provider, cfg.AI.Model)
+		fmt.Printf("  ✉ %s\n", cfg.Gmail.Email)
+	} else {
+		statusText := "stopped"
+		if running {
+			statusText = "running"
+		}
+		fmt.Printf("  %s %s\n", ui.StatusDot(running), statusText)
 	}
 
 	// Queue stats
@@ -44,16 +51,36 @@ func runStatus(cmd *cobra.Command, args []string) error {
 		defer store.Close()
 		stats, err := store.Stats()
 		if err == nil {
-			fmt.Printf("\nQueue:\n")
-			fmt.Printf("  Pending:  %d\n", stats.Pending)
-			fmt.Printf("  Labeled:  %d\n", stats.Labeled)
-			fmt.Printf("  Failed:   %d\n", stats.Failed)
+			fmt.Printf("\n  Queue\n")
+			fmt.Println("  ──────────────────────")
+			fmt.Printf("  Pending   %s\n", ui.Yellow(fmt.Sprintf("%d", stats.Pending)))
+			fmt.Printf("  Labeled   %s\n", ui.Green(fmt.Sprintf("%d", stats.Labeled)))
+			fmt.Printf("  Failed    %s\n", ui.Red(fmt.Sprintf("%d", stats.Failed)))
 		}
 
 		if lastPoll, err := store.GetState("last_poll_time"); err == nil {
-			fmt.Printf("\nLast poll: %s\n", lastPoll)
+			if t, err := time.Parse(time.RFC3339, lastPoll); err == nil {
+				fmt.Printf("\n  Last poll: %s\n", relativeTime(t))
+			} else {
+				fmt.Printf("\n  Last poll: %s\n", lastPoll)
+			}
 		}
 	}
 
+	fmt.Println()
 	return nil
+}
+
+func relativeTime(t time.Time) string {
+	d := time.Since(t)
+	switch {
+	case d < time.Minute:
+		return "just now"
+	case d < time.Hour:
+		return fmt.Sprintf("%dm ago", int(d.Minutes()))
+	case d < 24*time.Hour:
+		return fmt.Sprintf("%dh ago", int(d.Hours()))
+	default:
+		return fmt.Sprintf("%dd ago", int(d.Hours()/24))
+	}
 }

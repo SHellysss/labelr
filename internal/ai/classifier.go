@@ -82,6 +82,46 @@ func (c *Classifier) Classify(ctx context.Context, from, subject, body string) (
 	return result.Label, nil
 }
 
+// ValidateConnection sends a test message with structured output to verify the API key and model work.
+// Retries up to 3 times before returning an error.
+func (c *Classifier) ValidateConnection(ctx context.Context) error {
+	schema := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"status": map[string]any{
+				"type": "string",
+				"enum": []any{"ok"},
+			},
+		},
+		"required":             []string{"status"},
+		"additionalProperties": false,
+	}
+
+	var lastErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		_, err := c.client.Chat.Completions.New(ctx, openai.ChatCompletionNewParams{
+			Messages: []openai.ChatCompletionMessageParamUnion{
+				openai.UserMessage("Respond with status ok."),
+			},
+			Model: c.model,
+			ResponseFormat: openai.ChatCompletionNewParamsResponseFormatUnion{
+				OfJSONSchema: &openai.ResponseFormatJSONSchemaParam{
+					JSONSchema: openai.ResponseFormatJSONSchemaJSONSchemaParam{
+						Name:   "validation",
+						Schema: schema,
+						Strict: openai.Bool(true),
+					},
+				},
+			},
+		})
+		if err == nil {
+			return nil
+		}
+		lastErr = err
+	}
+	return fmt.Errorf("validation failed after 3 attempts: %w", lastErr)
+}
+
 func buildPrompt(from, subject, body string, labels []config.Label) string {
 	var sb strings.Builder
 	sb.WriteString("Classify this email into exactly one of the provided labels.\n\n")

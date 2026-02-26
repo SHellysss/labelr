@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/pankajbeniwal/labelr/internal/service"
+	"github.com/pankajbeniwal/labelr/internal/ui"
 	"github.com/spf13/cobra"
 )
 
@@ -21,11 +22,11 @@ func runStop(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("unsupported operating system")
 	}
 
-	fmt.Println("Stopping labelr daemon...")
+	ui.Info("Stopping labelr daemon...")
 	if err := mgr.Stop(); err != nil {
 		return fmt.Errorf("stopping service: %w", err)
 	}
 
-	fmt.Println("labelr daemon stopped.")
+	ui.Success("labelr daemon stopped")
 	return nil
 }

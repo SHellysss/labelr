@@ -8,9 +8,11 @@ import (
 	"time"
 
 	"github.com/charmbracelet/huh"
+	"github.com/charmbracelet/huh/spinner"
 	"github.com/pankajbeniwal/labelr/internal/config"
 	"github.com/pankajbeniwal/labelr/internal/db"
 	gmailpkg "github.com/pankajbeniwal/labelr/internal/gmail"
+	"github.com/pankajbeniwal/labelr/internal/ui"
 	"github.com/spf13/cobra"
 )
 
@@ -63,14 +65,22 @@ func runSync(cmd *cobra.Command, args []string) error {
 		estimate = 500
 	}
 
-	fmt.Printf("Fetching emails from the last %s (up to %d)...\n", lastStr, estimate)
-
-	msgs, err := client.ListRecentMessages(ctx, estimate)
+	var msgs []struct{ ID, ThreadID string }
+	var fetchErr error
+	err = spinner.New().
+		Title(fmt.Sprintf("Fetching emails from the last %s...", lastStr)).
+		Action(func() {
+			msgs, fetchErr = client.ListRecentMessages(ctx, estimate)
+		}).
+		Run()
 	if err != nil {
-		return fmt.Errorf("fetching messages: %w", err)
+		return err
+	}
+	if fetchErr != nil {
+		return fmt.Errorf("fetching messages: %w", fetchErr)
 	}
 
-	fmt.Printf("Found %d emails.\n", len(msgs))
+	fmt.Printf("  Found %d emails.\n", len(msgs))
 
 	var proceed bool
 	huh.NewConfirm().
@@ -79,7 +89,7 @@ func runSync(cmd *cobra.Command, args []string) error {
 		Run()
 
 	if !proceed {
-		fmt.Println("Cancelled.")
+		ui.Dim("Cancelled.")
 		return nil
 	}
 
@@ -87,7 +97,7 @@ func runSync(cmd *cobra.Command, args []string) error {
 		store.InsertMessage(m.ID, m.ThreadID)
 	}
 
-	fmt.Printf("Queued %d emails. They'll be processed by the daemon.\n", len(msgs))
+	ui.Success(fmt.Sprintf("Queued %d emails", len(msgs)))
 	return nil
 }
 

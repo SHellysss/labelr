@@ -6,35 +6,36 @@ import (
 	"os"
 
 	"github.com/charmbracelet/huh"
+	"github.com/charmbracelet/huh/spinner"
 	"github.com/pankajbeniwal/labelr/internal/ai"
 	"github.com/pankajbeniwal/labelr/internal/config"
 	"github.com/pankajbeniwal/labelr/internal/db"
 	gmailpkg "github.com/pankajbeniwal/labelr/internal/gmail"
 	"github.com/pankajbeniwal/labelr/internal/service"
+	"github.com/pankajbeniwal/labelr/internal/ui"
 	"github.com/spf13/cobra"
 )
 
 func NewInitCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "init",
-		Short: "Interactive first-time setup",
-		Long:  "Set up Gmail authentication, AI provider, and label configuration.",
+		Short: "Set up and start labelr",
+		Long:  "Interactive first-time setup: Gmail auth, AI provider, labels, then starts the daemon.",
 		RunE:  runInit,
 	}
 }
 
 func runInit(cmd *cobra.Command, args []string) error {
-	fmt.Println("Welcome to labelr! Let's get you set up.")
 	fmt.Println()
+	ui.Bold("Welcome to labelr!")
 
-	// Ensure config directory exists
 	if err := os.MkdirAll(config.Dir(), 0700); err != nil {
 		return fmt.Errorf("creating config directory: %w", err)
 	}
 
-	// Step 1: Gmail OAuth
-	fmt.Println("Step 1: Connect your Gmail account")
-	fmt.Println("A browser window will open for you to sign in with Google.")
+	// --- Gmail OAuth ---
+	ui.Header("Connect your Gmail account")
+	ui.Dim("A browser window will open for you to sign in.")
 	fmt.Println()
 
 	var proceed bool
@@ -53,7 +54,6 @@ func runInit(cmd *cobra.Command, args []string) error {
 	}
 	_ = token
 
-	// Get user email
 	ts, err := gmailpkg.TokenSource(config.CredentialsPath())
 	if err != nil {
 		return fmt.Errorf("creating token source: %w", err)
@@ -66,48 +66,85 @@ func runInit(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("getting profile: %w", err)
 	}
-	fmt.Printf("Connected as: %s\n\n", email)
+	ui.Success(fmt.Sprintf("Connected as %s", email))
 
-	// Step 2: AI Provider
-	fmt.Println("Step 2: Choose your AI provider")
-
-	providerNames := ai.ProviderNames()
+	// --- AI Provider ---
 	var selectedProvider string
-	huh.NewSelect[string]().
-		Title("Which AI provider?").
-		Options(huh.NewOptions(providerNames...)...).
-		Value(&selectedProvider).
-		Run()
-
-	provider, _ := ai.GetProvider(selectedProvider)
-
-	// Step 3: Model
 	var model string
-	huh.NewInput().
-		Title("Which model? (e.g., gpt-4o-mini, llama3, deepseek-chat)").
-		Value(&model).
-		Run()
-
-	// Step 4: API Key
 	var apiKey string
-	if provider.EnvKey != "" {
-		// Check env first
-		if envVal := os.Getenv(provider.EnvKey); envVal != "" {
-			fmt.Printf("Found API key in $%s\n", provider.EnvKey)
-			apiKey = envVal
-		} else {
-			huh.NewInput().
-				Title(fmt.Sprintf("Enter your %s API key:", provider.Name)).
-				Value(&apiKey).
-				EchoMode(huh.EchoModePassword).
-				Run()
+
+	for {
+		ui.Header("Choose your AI provider")
+
+		providerNames := ai.ProviderNames()
+		huh.NewSelect[string]().
+			Title("Which AI provider?").
+			Options(huh.NewOptions(providerNames...)...).
+			Value(&selectedProvider).
+			Run()
+
+		provider, _ := ai.GetProvider(selectedProvider)
+
+		// Model selection
+		var err error
+		model, err = selectModel(selectedProvider)
+		if err != nil {
+			return err
+		}
+
+		// API Key
+		apiKey = ""
+		if provider.EnvKey != "" {
+			if envVal := os.Getenv(provider.EnvKey); envVal != "" {
+				ui.Info(fmt.Sprintf("Found API key in $%s", provider.EnvKey))
+				apiKey = envVal
+			} else {
+				huh.NewInput().
+					Title(fmt.Sprintf("Enter your %s API key:", provider.Name)).
+					Value(&apiKey).
+					EchoMode(huh.EchoModePassword).
+					Run()
+			}
+		}
+
+		// Validate connection
+		classifier := ai.NewClassifier(apiKey, provider.BaseURL, model, config.DefaultLabels())
+
+		var validateErr error
+		spinErr := spinner.New().
+			Title("Verifying connection...").
+			Action(func() {
+				validateErr = classifier.ValidateConnection(context.Background())
+			}).
+			Run()
+		if spinErr != nil {
+			return spinErr
+		}
+
+		if validateErr == nil {
+			ui.Success(fmt.Sprintf("Connected to %s / %s", selectedProvider, model))
+			break
+		}
+
+		ui.Error(fmt.Sprintf("Could not connect to %s / %s", selectedProvider, model))
+		ui.Dim("This could mean: invalid API key, model doesn't support structured output, or network issue")
+		fmt.Println()
+
+		var retry bool
+		huh.NewConfirm().
+			Title("Try again with different settings?").
+			Value(&retry).
+			Run()
+
+		if !retry {
+			return fmt.Errorf("setup cancelled")
 		}
 	}
 
-	// Step 5: Labels — checklist of defaults + add custom
-	fmt.Println("\nStep 3: Configure labels")
-	defaults := config.DefaultLabels()
+	// --- Labels ---
+	ui.Header("Configure labels")
 
+	defaults := config.DefaultLabels()
 	options := make([]huh.Option[string], len(defaults))
 	for i, l := range defaults {
 		options[i] = huh.NewOption(fmt.Sprintf("%s — %s", l.Name, l.Description), l.Name).Selected(true)
@@ -124,7 +161,6 @@ func runInit(cmd *cobra.Command, args []string) error {
 		Value(&selectedNames).
 		Run()
 
-	// Build label list from selected defaults
 	selectedSet := make(map[string]bool)
 	for _, n := range selectedNames {
 		selectedSet[n] = true
@@ -136,7 +172,6 @@ func runInit(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Add custom labels loop
 	for {
 		var addMore bool
 		huh.NewConfirm().
@@ -154,11 +189,12 @@ func runInit(cmd *cobra.Command, args []string) error {
 
 		if name != "" {
 			labels = append(labels, config.Label{Name: name, Description: description})
-			fmt.Printf("  Added: %s\n", name)
+			ui.Success(fmt.Sprintf("Added: %s", name))
 		}
 	}
 
 	// Save config
+	provider, _ := ai.GetProvider(selectedProvider)
 	cfg := &config.Config{
 		Gmail:        config.GmailConfig{Email: email},
 		AI:           config.AIConfig{Provider: selectedProvider, Model: model, APIKey: apiKey, BaseURL: provider.BaseURL},
@@ -170,21 +206,35 @@ func runInit(cmd *cobra.Command, args []string) error {
 	}
 
 	// Create labels in Gmail
-	fmt.Println("\nCreating Gmail labels...")
 	store, err := db.Open(config.DBPath())
 	if err != nil {
 		return fmt.Errorf("opening database: %w", err)
 	}
 	defer store.Close()
 
+	var labelErr error
+	spinErr := spinner.New().
+		Title("Creating Gmail labels...").
+		Action(func() {
+			for _, l := range labels {
+				gmailID, err := client.CreateLabel(context.Background(), l.Name)
+				if err != nil {
+					labelErr = err
+					continue
+				}
+				store.SetLabelMapping(l.Name, gmailID)
+			}
+		}).
+		Run()
+	if spinErr != nil {
+		return spinErr
+	}
+
+	if labelErr != nil {
+		ui.Error(fmt.Sprintf("Some labels could not be created: %v", labelErr))
+	}
 	for _, l := range labels {
-		gmailID, err := client.CreateLabel(context.Background(), l.Name)
-		if err != nil {
-			fmt.Printf("  Warning: could not create label %q: %v\n", l.Name, err)
-			continue
-		}
-		store.SetLabelMapping(l.Name, gmailID)
-		fmt.Printf("  Created: %s\n", l.Name)
+		ui.Success(l.Name)
 	}
 
 	// Store initial historyId
@@ -198,32 +248,72 @@ func runInit(cmd *cobra.Command, args []string) error {
 		Run()
 
 	if testRun {
-		fmt.Println("Fetching recent emails...")
-		msgs, err := client.ListRecentMessages(context.Background(), 10)
-		if err != nil {
-			fmt.Printf("Warning: could not fetch recent messages: %v\n", err)
+		var msgs []struct{ ID, ThreadID string }
+		var fetchErr error
+		spinErr := spinner.New().
+			Title("Fetching recent emails...").
+			Action(func() {
+				msgs, fetchErr = client.ListRecentMessages(context.Background(), 10)
+			}).
+			Run()
+		if spinErr != nil {
+			return spinErr
+		}
+		if fetchErr != nil {
+			ui.Error(fmt.Sprintf("Could not fetch recent messages: %v", fetchErr))
 		} else {
 			for _, m := range msgs {
 				store.InsertMessage(m.ID, m.ThreadID)
 			}
-			fmt.Printf("Added %d emails to queue. They'll be labeled when you run 'labelr start'.\n", len(msgs))
+			ui.Success(fmt.Sprintf("Queued %d emails for labeling", len(msgs)))
 		}
 	}
 
-	// Restart daemon if it's currently running so it picks up new credentials
+	// Auto-start daemon
 	mgr := service.Detect()
-	if mgr != nil {
-		if running, _ := mgr.IsRunning(); running {
-			fmt.Println("\nRestarting daemon with new credentials...")
-			mgr.Stop()
-			mgr.Start()
-			fmt.Println("Daemon restarted.")
-		} else {
-			fmt.Println("\nSetup complete! Run 'labelr start' to begin labeling emails.")
-		}
-	} else {
-		fmt.Println("\nSetup complete! Run 'labelr start' to begin labeling emails.")
+	if mgr == nil {
+		ui.Dim("Could not detect service manager — run 'labelr daemon' manually")
+		return nil
 	}
+
+	// Check if already running (re-init case)
+	if running, _ := mgr.IsRunning(); running {
+		spinErr := spinner.New().
+			Title("Restarting daemon with new config...").
+			Action(func() {
+				mgr.Stop()
+				mgr.Install(findBinary())
+				mgr.Start()
+			}).
+			Run()
+		if spinErr != nil {
+			return spinErr
+		}
+		ui.Success("labelr daemon restarted")
+	} else {
+		spinErr := spinner.New().
+			Title("Starting labelr...").
+			Action(func() {
+				mgr.Install(findBinary())
+				mgr.Start()
+			}).
+			Run()
+		if spinErr != nil {
+			return spinErr
+		}
+		ui.Success("labelr is running in the background")
+	}
+
+	ui.Dim("Use 'labelr status' to check on it")
+	fmt.Println()
 
 	return nil
+}
+
+// findBinary returns the path to the labelr binary.
+func findBinary() string {
+	if path, err := os.Executable(); err == nil {
+		return path
+	}
+	return "labelr"
 }
