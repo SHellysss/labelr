@@ -7,6 +7,8 @@ import (
 
 	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/huh/spinner"
+	"golang.org/x/oauth2"
+
 	"github.com/pankajbeniwal/labelr/internal/ai"
 	"github.com/pankajbeniwal/labelr/internal/config"
 	"github.com/pankajbeniwal/labelr/internal/db"
@@ -34,29 +36,43 @@ func runInit(cmd *cobra.Command, args []string) error {
 	}
 
 	// --- Gmail OAuth ---
-	ui.Header("Connect your Gmail account")
-	ui.Dim("A browser window will open for you to sign in.")
-	fmt.Println()
+	var ts oauth2.TokenSource
 
-	var proceed bool
-	huh.NewConfirm().
-		Title("Ready to authenticate with Gmail?").
-		Value(&proceed).
-		Run()
-
-	if !proceed {
-		return fmt.Errorf("setup cancelled")
+	// Check if valid credentials already exist
+	existingTS, loadErr := gmailpkg.TokenSource(config.CredentialsPath())
+	if loadErr == nil {
+		// Try to use existing credentials
+		if _, tokErr := existingTS.Token(); tokErr == nil {
+			ts = existingTS
+			ui.Success("Gmail already connected")
+		}
 	}
 
-	token, err := gmailpkg.Authenticate(config.CredentialsPath())
-	if err != nil {
-		return fmt.Errorf("Gmail authentication failed: %w", err)
-	}
-	_ = token
+	if ts == nil {
+		ui.Header("Connect your Gmail account")
+		ui.Dim("A browser window will open for you to sign in.")
+		fmt.Println()
 
-	ts, err := gmailpkg.TokenSource(config.CredentialsPath())
-	if err != nil {
-		return fmt.Errorf("creating token source: %w", err)
+		var proceed bool
+		huh.NewConfirm().
+			Title("Ready to authenticate with Gmail?").
+			Value(&proceed).
+			Run()
+
+		if !proceed {
+			return fmt.Errorf("setup cancelled")
+		}
+
+		token, err := gmailpkg.Authenticate(config.CredentialsPath())
+		if err != nil {
+			return fmt.Errorf("Gmail authentication failed: %w", err)
+		}
+		_ = token
+
+		ts, err = gmailpkg.TokenSource(config.CredentialsPath())
+		if err != nil {
+			return fmt.Errorf("creating token source: %w", err)
+		}
 	}
 	client, err := gmailpkg.NewClient(context.Background(), ts)
 	if err != nil {
