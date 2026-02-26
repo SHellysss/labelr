@@ -71,14 +71,15 @@ func ProviderNames() []string {
 }
 
 // modelsDevProvider represents a provider entry in the models.dev API response.
+// The models field is a map keyed by model ID, not an array.
 type modelsDevProvider struct {
-	Models []modelsDevModel `json:"models"`
+	Models map[string]modelsDevModel `json:"models"`
 }
 
 type modelsDevModel struct {
 	ID               string `json:"id"`
 	Name             string `json:"name"`
-	StructuredOutput bool   `json:"structured_output"`
+	StructuredOutput *bool  `json:"structured_output,omitempty"`
 }
 
 // modelsCacheEntry is what we store in the cache file.
@@ -88,6 +89,9 @@ type modelsCacheEntry struct {
 }
 
 const modelsCacheTTL = 7 * 24 * time.Hour
+
+// modelsDevURL is the endpoint for fetching model metadata. Overridable in tests.
+var modelsDevURL = "https://models.dev/api.json"
 
 // FetchModelsForProvider returns model IDs that support structured output for a cloud provider.
 // Uses a local cache with a 7-day TTL. Returns nil for ollama (use FetchOllamaModels instead).
@@ -105,7 +109,7 @@ func FetchModelsForProvider(providerName string) ([]string, error) {
 
 	// Fetch from models.dev
 	client := &http.Client{Timeout: 15 * time.Second}
-	resp, err := client.Get("https://models.dev/api.json")
+	resp, err := client.Get(modelsDevURL)
 	if err != nil {
 		return nil, fmt.Errorf("fetching models.dev: %w", err)
 	}
@@ -129,8 +133,12 @@ func FetchModelsForProvider(providerName string) ([]string, error) {
 		if p, ok := allProviders[key]; ok {
 			var models []string
 			for _, m := range p.Models {
-				if m.StructuredOutput {
-					models = append(models, m.ID)
+				// Include if structured_output is true or unknown (nil).
+				// Exclude only when explicitly false.
+				if m.StructuredOutput == nil || *m.StructuredOutput {
+					if m.ID != "" {
+						models = append(models, m.ID)
+					}
 				}
 			}
 			cache.Data[key] = models
