@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/pankajbeniwal/labelr/internal/cli"
 	"github.com/spf13/cobra"
 )
 
@@ -16,6 +17,8 @@ func main() {
 		Long:    "labelr automatically classifies and labels your Gmail emails using AI.",
 		Version: version,
 	}
+
+	rootCmd.AddCommand(cli.NewInitCmd())
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
