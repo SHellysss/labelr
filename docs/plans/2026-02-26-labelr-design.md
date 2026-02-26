@@ -174,7 +174,7 @@ labelr daemon      [hidden] Run daemon in foreground
 3. Provider selection (bubbletea)
 4. Model selection (Models.dev → bubbletea)
 5. API key (auto-detect env or prompt)
-6. Label config (show defaults, customize)
+6. Label config: checklist of defaults (toggle on/off) + "Add custom label" (name + description prompt, repeatable)
 7. Create labels in Gmail
 8. Ask: "Label 10 recent emails to test?"
 9. Write config

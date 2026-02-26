@@ -2716,23 +2716,61 @@ func runInit(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Step 5: Labels
+	// Step 5: Labels — checklist of defaults + add custom
 	fmt.Println("\nStep 3: Configure labels")
-	labels := config.DefaultLabels()
-	fmt.Println("Default labels:")
-	for _, l := range labels {
-		fmt.Printf("  - %s: %s\n", l.Name, l.Description)
+	defaults := config.DefaultLabels()
+
+	// Build multi-select checklist of default labels (all selected initially)
+	defaultNames := make([]string, len(defaults))
+	for i, l := range defaults {
+		defaultNames[i] = l.Name
+	}
+	selectedNames := make([]string, len(defaultNames))
+	copy(selectedNames, defaultNames)
+
+	options := make([]huh.Option[string], len(defaults))
+	for i, l := range defaults {
+		options[i] = huh.NewOption(fmt.Sprintf("%s — %s", l.Name, l.Description), l.Name).Selected(true)
 	}
 
-	var useDefaults bool
-	huh.NewConfirm().
-		Title("Use default labels?").
-		Value(&useDefaults).
+	huh.NewMultiSelect[string]().
+		Title("Which default labels do you want?").
+		Options(options...).
+		Value(&selectedNames).
 		Run()
 
-	if !useDefaults {
-		// TODO: Interactive label editor with bubbletea
-		fmt.Println("Custom label editing coming soon. Using defaults for now.")
+	// Build label list from selected defaults
+	selectedSet := make(map[string]bool)
+	for _, n := range selectedNames {
+		selectedSet[n] = true
+	}
+	var labels []config.Label
+	for _, l := range defaults {
+		if selectedSet[l.Name] {
+			labels = append(labels, l)
+		}
+	}
+
+	// Add custom labels loop
+	for {
+		var addMore bool
+		huh.NewConfirm().
+			Title("Add a custom label?").
+			Value(&addMore).
+			Run()
+
+		if !addMore {
+			break
+		}
+
+		var name, description string
+		huh.NewInput().Title("Label name:").Value(&name).Run()
+		huh.NewInput().Title("Description (helps AI classify):").Value(&description).Run()
+
+		if name != "" {
+			labels = append(labels, config.Label{Name: name, Description: description})
+			fmt.Printf("  Added: %s\n", name)
+		}
 	}
 
 	// Save config
@@ -3306,9 +3344,14 @@ func parseDuration(s string) (time.Duration, error) {
 package cli
 
 import (
+	"context"
 	"fmt"
 
+	"github.com/charmbracelet/huh"
+	"github.com/pankajbeniwal/labelr/internal/ai"
 	"github.com/pankajbeniwal/labelr/internal/config"
+	"github.com/pankajbeniwal/labelr/internal/db"
+	gmailpkg "github.com/pankajbeniwal/labelr/internal/gmail"
 	"github.com/spf13/cobra"
 )
 
@@ -3326,6 +3369,7 @@ func runConfig(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("loading config: %w", err)
 	}
 
+	// Show current config
 	fmt.Printf("Gmail:     %s\n", cfg.Gmail.Email)
 	fmt.Printf("Provider:  %s\n", cfg.AI.Provider)
 	fmt.Printf("Model:     %s\n", cfg.AI.Model)
@@ -3335,7 +3379,133 @@ func runConfig(cmd *cobra.Command, args []string) error {
 	for _, l := range cfg.Labels {
 		fmt.Printf("  - %s: %s\n", l.Name, l.Description)
 	}
-	fmt.Printf("\nConfig file: %s\n", config.DefaultPath())
+
+	// Ask what to edit
+	var editChoice string
+	huh.NewSelect[string]().
+		Title("What would you like to change?").
+		Options(
+			huh.NewOption("Nothing (exit)", "none"),
+			huh.NewOption("AI provider / model", "ai"),
+			huh.NewOption("Labels", "labels"),
+			huh.NewOption("Poll interval", "poll"),
+		).
+		Value(&editChoice).
+		Run()
+
+	switch editChoice {
+	case "none":
+		return nil
+
+	case "ai":
+		providerNames := ai.ProviderNames()
+		var selectedProvider string
+		huh.NewSelect[string]().
+			Title("Which AI provider?").
+			Options(huh.NewOptions(providerNames...)...).
+			Value(&selectedProvider).
+			Run()
+
+		provider, _ := ai.GetProvider(selectedProvider)
+		cfg.AI.Provider = selectedProvider
+		cfg.AI.BaseURL = provider.BaseURL
+
+		var model string
+		huh.NewInput().Title("Which model?").Value(&model).Run()
+		cfg.AI.Model = model
+
+		if provider.EnvKey != "" {
+			var apiKey string
+			huh.NewInput().Title("API key:").Value(&apiKey).EchoMode(huh.EchoModePassword).Run()
+			if apiKey != "" {
+				cfg.AI.APIKey = apiKey
+			}
+		}
+
+	case "labels":
+		// Show current labels as checklist (toggle off to remove)
+		currentNames := make([]string, len(cfg.Labels))
+		for i, l := range cfg.Labels {
+			currentNames[i] = l.Name
+		}
+		selectedNames := make([]string, len(currentNames))
+		copy(selectedNames, currentNames)
+
+		options := make([]huh.Option[string], len(cfg.Labels))
+		for i, l := range cfg.Labels {
+			options[i] = huh.NewOption(fmt.Sprintf("%s — %s", l.Name, l.Description), l.Name).Selected(true)
+		}
+
+		huh.NewMultiSelect[string]().
+			Title("Keep which labels? (deselect to remove)").
+			Options(options...).
+			Value(&selectedNames).
+			Run()
+
+		selectedSet := make(map[string]bool)
+		for _, n := range selectedNames {
+			selectedSet[n] = true
+		}
+		var kept []config.Label
+		for _, l := range cfg.Labels {
+			if selectedSet[l.Name] {
+				kept = append(kept, l)
+			}
+		}
+		cfg.Labels = kept
+
+		// Add new labels
+		for {
+			var addMore bool
+			huh.NewConfirm().Title("Add a custom label?").Value(&addMore).Run()
+			if !addMore {
+				break
+			}
+			var name, description string
+			huh.NewInput().Title("Label name:").Value(&name).Run()
+			huh.NewInput().Title("Description:").Value(&description).Run()
+			if name != "" {
+				cfg.Labels = append(cfg.Labels, config.Label{Name: name, Description: description})
+				fmt.Printf("  Added: %s\n", name)
+			}
+		}
+
+		// Create any new labels in Gmail
+		ts, tsErr := gmailpkg.TokenSource(config.CredentialsPath())
+		if tsErr == nil {
+			client, clientErr := gmailpkg.NewClient(context.Background(), ts)
+			if clientErr == nil {
+				store, dbErr := db.Open(config.DBPath())
+				if dbErr == nil {
+					defer store.Close()
+					for _, l := range cfg.Labels {
+						if _, err := store.GetLabelMapping(l.Name); err != nil {
+							// New label, create in Gmail
+							gmailID, createErr := client.CreateLabel(context.Background(), l.Name)
+							if createErr == nil {
+								store.SetLabelMapping(l.Name, gmailID)
+								fmt.Printf("  Created in Gmail: %s\n", l.Name)
+							}
+						}
+					}
+				}
+			}
+		}
+
+	case "poll":
+		var interval int
+		huh.NewInput().Title("Poll interval (seconds):").Value(new(string)).Run()
+		// Simple: just let them type a number
+		fmt.Scanf("%d", &interval)
+		if interval > 0 {
+			cfg.PollInterval = interval
+		}
+	}
+
+	if err := config.Save(config.DefaultPath(), cfg); err != nil {
+		return fmt.Errorf("saving config: %w", err)
+	}
+	fmt.Println("Config saved.")
 	return nil
 }
 ```
