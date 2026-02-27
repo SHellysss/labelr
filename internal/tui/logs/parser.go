@@ -35,7 +35,7 @@ func ParseLine(line string) LogEntry {
 
 	// Validate level
 	switch level {
-	case "INFO", "ERROR", "DEBUG":
+	case "INFO", "WARN", "ERROR", "DEBUG":
 		// valid
 	default:
 		return LogEntry{Time: timeStr, Message: strings.Join(parts[2:], " ")}

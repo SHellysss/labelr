@@ -20,6 +20,10 @@ func TestParseLine(t *testing.T) {
 			want:  LogEntry{Time: "14:23:05", Level: "DEBUG", Message: "Detailed debug info here"},
 		},
 		{
+			input: "2026/02/27 14:23:06 WARN Rate limited, retrying",
+			want:  LogEntry{Time: "14:23:06", Level: "WARN", Message: "Rate limited, retrying"},
+		},
+		{
 			input: "some unstructured line",
 			want:  LogEntry{Time: "", Level: "", Message: "some unstructured line"},
 		},

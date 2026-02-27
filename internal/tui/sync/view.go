@@ -35,19 +35,20 @@ type queueDoneMsg struct {
 }
 
 type SyncView struct {
-	phase    phase
-	lastStr  string
-	duration time.Duration
-	client   *gmail.Client
-	store    *db.Store
-	spinner  spinner.Model
-	msgs     []struct{ ID, ThreadID string }
-	skipped  int // already processed count
-	cursor   int // 0 = Yes, 1 = No
-	queued   int
-	err      error
-	width    int
-	height   int
+	phase       phase
+	lastStr     string
+	duration    time.Duration
+	client      *gmail.Client
+	store       *db.Store
+	storeClosed bool
+	spinner     spinner.Model
+	msgs        []struct{ ID, ThreadID string }
+	skipped     int // already processed count
+	cursor      int // 0 = Yes, 1 = No
+	queued      int
+	err         error
+	width       int
+	height      int
 }
 
 func New(lastStr string, duration time.Duration, client *gmail.Client, store *db.Store) *SyncView {
@@ -62,6 +63,13 @@ func New(lastStr string, duration time.Duration, client *gmail.Client, store *db
 		client:   client,
 		store:    store,
 		spinner:  s,
+	}
+}
+
+func (v *SyncView) closeStore() {
+	if !v.storeClosed {
+		v.store.Close()
+		v.storeClosed = true
 	}
 }
 
@@ -91,7 +99,7 @@ func (v *SyncView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	case tea.KeyMsg:
 		switch {
 		case key.Matches(msg, tui.KeyQuit):
-			v.store.Close()
+			v.closeStore()
 			return v, tea.Quit
 		}
 
@@ -104,7 +112,7 @@ func (v *SyncView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 			case "enter":
 				if v.cursor == 1 {
 					// User chose No
-					v.store.Close()
+					v.closeStore()
 					return v, tea.Quit
 				}
 				// User chose Yes — start queuing

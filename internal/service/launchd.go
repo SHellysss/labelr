@@ -1,6 +1,7 @@
 package service
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -52,7 +53,10 @@ func (m *LaunchdManager) Install(binaryPath string) error {
 
 func (m *LaunchdManager) Uninstall() error {
 	m.Stop()
-	return os.Remove(m.plistPath())
+	if err := os.Remove(m.plistPath()); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return nil
 }
 
 func (m *LaunchdManager) Start() error {

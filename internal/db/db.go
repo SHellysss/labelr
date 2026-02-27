@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	_ "modernc.org/sqlite"
 )
@@ -94,17 +95,31 @@ func (s *Store) migrate() error {
 	}
 
 	// Add color columns (safe to run on existing DBs — ignores "duplicate column" errors)
-	s.migrateAddColumn("label_mappings", "bg_color", "TEXT NOT NULL DEFAULT ''")
-	s.migrateAddColumn("label_mappings", "text_color", "TEXT NOT NULL DEFAULT ''")
+	if err := s.migrateAddColumn("label_mappings", "bg_color", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return fmt.Errorf("adding bg_color column: %w", err)
+	}
+	if err := s.migrateAddColumn("label_mappings", "text_color", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return fmt.Errorf("adding text_color column: %w", err)
+	}
 
 	// Add subject column to messages for activity feed
-	s.migrateAddColumn("messages", "subject", "TEXT NOT NULL DEFAULT ''")
+	if err := s.migrateAddColumn("messages", "subject", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return fmt.Errorf("adding subject column: %w", err)
+	}
 
 	return nil
 }
 
-func (s *Store) migrateAddColumn(table, column, colDef string) {
-	_, _ = s.db.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", table, column, colDef))
+func (s *Store) migrateAddColumn(table, column, colDef string) error {
+	_, err := s.db.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", table, column, colDef))
+	if err != nil {
+		// Ignore "duplicate column" errors (column already exists)
+		if strings.Contains(err.Error(), "duplicate column") {
+			return nil
+		}
+		return err
+	}
+	return nil
 }
 
 func (s *Store) InsertMessage(id, threadID string) error {

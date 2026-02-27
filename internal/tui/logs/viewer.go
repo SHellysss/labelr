@@ -16,13 +16,18 @@ import (
 
 const tailPollInterval = 500 * time.Millisecond
 
+const maxRetryDelay = 5 * time.Second
+
 type tailMsg struct {
 	lines []string
+	file  *os.File // non-nil only on initial open
 }
 
 type tailErrMsg struct {
 	err error
 }
+
+type retryOpenMsg struct{}
 
 type Viewer struct {
 	filePath   string
@@ -99,6 +104,13 @@ func (v *Viewer) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		}
 
 	case tailMsg:
+		// Set the file handle if this is the initial open
+		if msg.file != nil {
+			if v.file != nil {
+				v.file.Close()
+			}
+			v.file = msg.file
+		}
 		for _, line := range msg.lines {
 			v.entries = append(v.entries, ParseLine(line))
 		}
@@ -109,10 +121,16 @@ func (v *Viewer) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		return v, v.pollTail()
 
 	case tailErrMsg:
-		// File might have been rotated, try reopening
+		// File might have been rotated; retry after a delay to avoid tight loops
 		if v.file != nil {
 			v.file.Close()
+			v.file = nil
 		}
+		return v, tea.Tick(maxRetryDelay, func(t time.Time) tea.Msg {
+			return retryOpenMsg{}
+		})
+
+	case retryOpenMsg:
 		return v, v.openAndReadFile()
 	}
 
@@ -179,19 +197,21 @@ func (v *Viewer) openAndReadFile() tea.Cmd {
 			lines = lines[len(lines)-1000:]
 		}
 
-		v.file = f
-		return tailMsg{lines: lines}
+		// Return the file handle via message so it's set on the main goroutine
+		return tailMsg{lines: lines, file: f}
 	}
 }
 
 func (v *Viewer) pollTail() tea.Cmd {
+	// Capture the file handle on the main goroutine to avoid races
+	f := v.file
 	return tea.Tick(tailPollInterval, func(t time.Time) tea.Msg {
-		if v.file == nil {
+		if f == nil {
 			return tailErrMsg{err: fmt.Errorf("file closed")}
 		}
 
 		var lines []string
-		reader := bufio.NewReader(v.file)
+		reader := bufio.NewReader(f)
 		for {
 			line, err := reader.ReadString('\n')
 			if err != nil {

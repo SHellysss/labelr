@@ -74,7 +74,9 @@ func parseDuration(s string) (time.Duration, error) {
 		return time.Duration(num) * 24 * time.Hour, nil
 	case 'h':
 		return time.Duration(num) * time.Hour, nil
+	case 'm':
+		return time.Duration(num) * time.Minute, nil
 	default:
-		return 0, fmt.Errorf("unknown unit %c (use d or h)", unit)
+		return 0, fmt.Errorf("unknown unit %c (use d, h, or m)", unit)
 	}
 }

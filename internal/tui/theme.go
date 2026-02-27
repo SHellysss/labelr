@@ -14,10 +14,6 @@ var (
 
 // Shared styles used across all TUI views.
 var (
-	HeaderStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(ColorGreen)
-
 	FooterStyle = lipgloss.NewStyle().
 			Faint(true)
 

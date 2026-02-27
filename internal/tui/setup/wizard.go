@@ -121,6 +121,11 @@ func (w *Wizard) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		w.height = msg.Height
 
 	case tea.KeyMsg:
+		// Handle quit — close store to avoid leak
+		if key.Matches(msg, tui.KeyQuit) {
+			w.store.Close()
+		}
+
 		// Handle back navigation
 		if key.Matches(msg, tui.KeyBack) {
 			step := w.steps[w.current]
@@ -143,7 +148,13 @@ func (w *Wizard) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 			return w, tea.Batch(cmd, w.steps[w.current].Init())
 		}
 		// Last step done — save config and quit
-		config.Save(config.DefaultPath(), w.cfg)
+		if err := config.Save(config.DefaultPath(), w.cfg); err != nil {
+			w.store.Close()
+			return w, tea.Sequence(
+				tea.Printf("Error saving config: %v", err),
+				tea.Quit,
+			)
+		}
 		w.store.Close()
 		return w, tea.Quit
 	}

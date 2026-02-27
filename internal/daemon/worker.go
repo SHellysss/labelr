@@ -101,8 +101,9 @@ func (w *Worker) logError(format string, args ...any) {
 }
 
 func truncateSubject(s string, max int) string {
-	if len(s) <= max {
+	runes := []rune(s)
+	if len(runes) <= max {
 		return s
 	}
-	return s[:max-1] + "…"
+	return string(runes[:max-1]) + "…"
 }

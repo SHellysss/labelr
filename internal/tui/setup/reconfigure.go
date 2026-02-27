@@ -77,6 +77,7 @@ type ReconfigureView struct {
 	aiProvider string
 	aiModel    string
 	aiAPIKey   string
+	aiReuseKey bool   // whether user chose to reuse existing API key
 	aiEntry    string // "full" or "model-only"
 
 	// Sub-flow: Model only
@@ -100,8 +101,10 @@ type ReconfigureView struct {
 	pollErr  string
 
 	// Saving phase
-	saveSpinner SpinnerStep
-	saveStatus  string // accumulated status lines
+	saveSpinner  SpinnerStep
+	saveStatus   string // accumulated status lines
+	savePending  int    // count of async operations still pending (config save + bgWork)
+	saveBgQueued bool   // whether bg work was queued
 
 	width  int
 	height int
@@ -369,6 +372,10 @@ func (v *ReconfigureView) updateGmail(msg tea.Msg) (tui.View, tea.Cmd) {
 		}
 		v.cfg.Gmail.Email = msg.email
 		v.gmailSpinner.done = true
+		// Capture labels snapshot for the goroutine closure
+		labels := make([]config.Label, len(v.cfg.Labels))
+		copy(labels, v.cfg.Labels)
+		historyID := msg.historyID
 		// Sync labels to new account
 		return v, v.startSave(fmt.Sprintf("Connected as %s", msg.email), func() tea.Msg {
 			store, err := db.Open(config.DBPath())
@@ -376,7 +383,6 @@ func (v *ReconfigureView) updateGmail(msg tea.Msg) (tui.View, tea.Cmd) {
 				return labelSyncDoneMsg{err: err}
 			}
 			defer store.Close()
-			v.store = store
 
 			ts, err := gmailpkg.TokenSource(config.CredentialsPath())
 			if err != nil {
@@ -387,7 +393,7 @@ func (v *ReconfigureView) updateGmail(msg tea.Msg) (tui.View, tea.Cmd) {
 				return labelSyncDoneMsg{err: err}
 			}
 			customIdx := 0
-			for _, l := range v.cfg.Labels {
+			for _, l := range labels {
 				_, existingBg, existingTx, dbErr := store.GetLabelMappingWithColor(l.Name)
 				var bg, tx string
 				if dbErr == nil && existingBg != "" {
@@ -404,7 +410,7 @@ func (v *ReconfigureView) updateGmail(msg tea.Msg) (tui.View, tea.Cmd) {
 				}
 				store.SetLabelMappingWithColor(l.Name, gmailID, bg, tx)
 			}
-			store.SetState("history_id", fmt.Sprintf("%d", msg.historyID))
+			store.SetState("history_id", fmt.Sprintf("%d", historyID))
 			return labelSyncDoneMsg{}
 		})
 	}
@@ -524,22 +530,22 @@ func (v *ReconfigureView) updateAI(msg tea.Msg) (tui.View, tea.Cmd) {
 			if v.cfg.AI.Provider == v.aiProvider && v.cfg.AI.APIKey != "" {
 				v.aiPhase = 3
 				v.aiAPIKey = ""
-				var reuseKey bool
+				v.aiReuseKey = true // default to yes
 				v.aiForm = newForm(
 					huh.NewGroup(
 						huh.NewConfirm().
 							Title("Use existing API key?").
-							Value(&reuseKey),
+							Value(&v.aiReuseKey),
 					),
 				)
-				// Store reuse decision via a wrapper
 				return v, v.aiForm.Init()
 			}
 			v.aiPhase = 3
+			v.aiReuseKey = false
 			v.aiForm = newForm(
 				huh.NewGroup(
 					huh.NewInput().
-						Title(fmt.Sprintf("Enter your API key")).
+						Title("Enter your API key").
 						EchoMode(huh.EchoModePassword).
 						Value(&v.aiAPIKey),
 				),
@@ -554,26 +560,25 @@ func (v *ReconfigureView) updateAI(msg tea.Msg) (tui.View, tea.Cmd) {
 			v.aiForm = f
 		}
 		if v.aiForm.State == huh.StateCompleted {
-			// If we offered reuse and user just confirmed without typing a key,
-			// check the reuse path
-			if v.aiAPIKey == "" && v.cfg.AI.Provider == v.aiProvider && v.cfg.AI.APIKey != "" {
-				// The confirm form was used — check if they want to reuse
-				// huh.Confirm defaults to true when submitted
+			// Check if the user confirmed reuse of existing key
+			if v.aiReuseKey {
 				v.aiAPIKey = v.cfg.AI.APIKey
+				return v, v.applyAIChanges()
 			}
-			if v.aiAPIKey == "" {
-				// They said no to reuse — show input
-				v.aiForm = newForm(
-					huh.NewGroup(
-						huh.NewInput().
-							Title("Enter your API key").
-							EchoMode(huh.EchoModePassword).
-							Value(&v.aiAPIKey),
-					),
-				)
-				return v, v.aiForm.Init()
+			// If key was entered via input form, use it
+			if v.aiAPIKey != "" {
+				return v, v.applyAIChanges()
 			}
-			return v, v.applyAIChanges()
+			// User declined reuse — show input form
+			v.aiForm = newForm(
+				huh.NewGroup(
+					huh.NewInput().
+						Title("Enter your API key").
+						EchoMode(huh.EchoModePassword).
+						Value(&v.aiAPIKey),
+				),
+			)
+			return v, v.aiForm.Init()
 		}
 		return v, cmd
 
@@ -972,26 +977,33 @@ func (v *ReconfigureView) updatePoll(msg tea.Msg) (tui.View, tea.Cmd) {
 
 // ─── Save phase ──────────────────────────────────
 
-// startSave transitions to the saving phase. It saves config and optionally
-// runs a background task (like syncing Gmail labels) before restarting the daemon.
+// startSave transitions to the saving phase. It saves config asynchronously
+// and optionally runs a background task (like syncing Gmail labels) before
+// restarting the daemon.
 func (v *ReconfigureView) startSave(statusLine string, bgWork func() tea.Msg) tea.Cmd {
 	v.phase = phaseSaving
 	v.saveStatus = "  " + tui.SuccessStyle.Render("✓ "+statusLine)
 	v.saveSpinner = newSpinnerStep("Saving...")
 
-	// Save config immediately
-	if err := config.Save(config.DefaultPath(), v.cfg); err != nil {
-		v.saveSpinner.err = fmt.Errorf("saving config: %w", err)
-		return nil
+	// Capture config values for the Cmd closure
+	cfgPath := config.DefaultPath()
+	cfgCopy := *v.cfg
+
+	saveCmd := func() tea.Msg {
+		if err := config.Save(cfgPath, &cfgCopy); err != nil {
+			return configSavedMsg{err: err}
+		}
+		return configSavedMsg{}
 	}
 
 	if bgWork != nil {
+		v.saveBgQueued = true
 		v.saveSpinner = newSpinnerStep("Syncing with Gmail...")
-		return tea.Batch(v.saveSpinner.spinner.Tick, func() tea.Msg { return bgWork() })
+		return tea.Batch(v.saveSpinner.spinner.Tick, saveCmd, func() tea.Msg { return bgWork() })
 	}
 
-	// No bg work — go straight to daemon restart
-	return v.startDaemonRestart()
+	v.saveBgQueued = false
+	return tea.Batch(v.saveSpinner.spinner.Tick, saveCmd)
 }
 
 func (v *ReconfigureView) startDaemonRestart() tea.Cmd {
@@ -1022,6 +1034,18 @@ func (v *ReconfigureView) updateSaving(msg tea.Msg) (tui.View, tea.Cmd) {
 		var cmd tea.Cmd
 		v.saveSpinner.spinner, cmd = v.saveSpinner.spinner.Update(msg)
 		return v, cmd
+	case configSavedMsg:
+		if msg.err != nil {
+			v.saveStatus += "\n  " + tui.ErrorStyle.Render("✗ "+msg.err.Error())
+			v.saveSpinner.err = msg.err
+			return v, nil
+		}
+		v.saveStatus += "\n  " + tui.SuccessStyle.Render("✓ Config saved")
+		if !v.saveBgQueued {
+			// No background work — go straight to daemon restart
+			return v, v.startDaemonRestart()
+		}
+		return v, nil // wait for labelSyncDoneMsg
 	case labelSyncDoneMsg:
 		if msg.err != nil {
 			v.saveStatus += "\n  " + tui.ErrorStyle.Render("✗ "+msg.err.Error())
@@ -1031,7 +1055,6 @@ func (v *ReconfigureView) updateSaving(msg tea.Msg) (tui.View, tea.Cmd) {
 		return v, v.startDaemonRestart()
 	case daemonRestartedMsg:
 		v.saveSpinner.done = true
-		v.saveStatus += "\n  " + tui.SuccessStyle.Render("✓ Config saved")
 		// Return to menu
 		v.phase = phaseMenu
 		v.buildMenu()

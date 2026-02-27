@@ -1,7 +1,11 @@
 // internal/tui/keys.go
 package tui
 
-import "github.com/charmbracelet/bubbles/key"
+import (
+	"strings"
+
+	"github.com/charmbracelet/bubbles/key"
+)
 
 // Global key bindings shared across views.
 var (
@@ -36,10 +40,6 @@ var (
 		key.WithKeys("f"),
 		key.WithHelp("f", "filter"),
 	)
-	KeySearch = key.NewBinding(
-		key.WithKeys("/"),
-		key.WithHelp("/", "search"),
-	)
 	KeyBottom = key.NewBinding(
 		key.WithKeys("G"),
 		key.WithHelp("G", "bottom"),
@@ -57,12 +57,5 @@ func RenderHelp(keys []key.Binding, width int) string {
 		}
 		parts = append(parts, h.Key+" "+h.Desc)
 	}
-	joined := ""
-	for i, p := range parts {
-		if i > 0 {
-			joined += " • "
-		}
-		joined += p
-	}
-	return FooterStyle.Width(width).Render("  " + joined)
+	return FooterStyle.Width(width).Render("  " + strings.Join(parts, " • "))
 }

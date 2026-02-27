@@ -683,7 +683,10 @@ func (s *finishStep) Update(msg tea.Msg) (Step, tea.Cmd) {
 		}
 		s.spinner.done = true
 		// Save config now
-		config.Save(config.DefaultPath(), s.deps.Cfg)
+		if err := config.Save(config.DefaultPath(), s.deps.Cfg); err != nil {
+			s.spinner.err = fmt.Errorf("saving config: %w", err)
+			return s, nil
+		}
 
 		// Offer test run
 		s.phase = 1
