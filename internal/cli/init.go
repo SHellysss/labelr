@@ -89,71 +89,109 @@ func runInit(cmd *cobra.Command, args []string) error {
 	var model string
 	var apiKey string
 
-	for {
-		ui.Header("Choose your AI provider")
-
-		providerNames := ai.ProviderNames()
-		huh.NewSelect[string]().
-			Title("Which AI provider?").
-			Options(huh.NewOptions(providerNames...)...).
-			Value(&selectedProvider).
-			Run()
-
-		provider, _ := ai.GetProvider(selectedProvider)
-
-		// Model selection
-		var err error
-		model, err = selectModel(selectedProvider)
-		if err != nil {
-			return err
-		}
-
-		// API Key
-		apiKey = ""
-		if provider.EnvKey != "" {
-			if envVal := os.Getenv(provider.EnvKey); envVal != "" {
-				ui.Info(fmt.Sprintf("Found API key in $%s", provider.EnvKey))
-				apiKey = envVal
-			} else {
-				huh.NewInput().
-					Title(fmt.Sprintf("Enter your %s API key:", provider.Name)).
-					Value(&apiKey).
-					EchoMode(huh.EchoModePassword).
-					Run()
-			}
-		}
-
-		// Validate connection
-		classifier := ai.NewClassifier(apiKey, provider.BaseURL, model, config.DefaultLabels())
-
+	// Check if existing AI config is valid — skip if so
+	existingCfg, cfgErr := config.Load(config.DefaultPath())
+	aiConfigured := false
+	if cfgErr == nil && existingCfg.AI.Provider != "" && existingCfg.AI.Model != "" {
+		classifier := ai.NewClassifier(existingCfg.AI.APIKey, existingCfg.AI.BaseURL, existingCfg.AI.Model, config.DefaultLabels())
 		var validateErr error
 		spinErr := spinner.New().
-			Title("Verifying connection...").
+			Title("Checking existing AI connection...").
 			Action(func() {
 				validateErr = classifier.ValidateConnection(context.Background())
 			}).
 			Run()
-		if spinErr != nil {
-			return spinErr
+		if spinErr == nil && validateErr == nil {
+			selectedProvider = existingCfg.AI.Provider
+			model = existingCfg.AI.Model
+			apiKey = existingCfg.AI.APIKey
+			aiConfigured = true
+			ui.Success(fmt.Sprintf("AI already configured: %s / %s", selectedProvider, model))
 		}
+	}
 
-		if validateErr == nil {
-			ui.Success(fmt.Sprintf("Connected to %s / %s", selectedProvider, model))
-			break
-		}
+	if !aiConfigured {
+		for {
+			ui.Header("Choose your AI provider")
 
-		ui.Error(fmt.Sprintf("Could not connect to %s / %s", selectedProvider, model))
-		ui.Dim("This could mean: invalid API key, model doesn't support structured output, or network issue")
-		fmt.Println()
+			providerNames := ai.ProviderNames()
+			huh.NewSelect[string]().
+				Title("Which AI provider?").
+				Options(huh.NewOptions(providerNames...)...).
+				Value(&selectedProvider).
+				Run()
 
-		var retry bool
-		huh.NewConfirm().
-			Title("Try again with different settings?").
-			Value(&retry).
-			Run()
+			provider, _ := ai.GetProvider(selectedProvider)
 
-		if !retry {
-			return fmt.Errorf("setup cancelled")
+			// Model selection
+			var err error
+			model, err = selectModel(selectedProvider)
+			if err != nil {
+				return err
+			}
+
+			// API Key — offer to reuse existing key if same provider
+			apiKey = ""
+			if provider.EnvKey != "" {
+				if envVal := os.Getenv(provider.EnvKey); envVal != "" {
+					ui.Info(fmt.Sprintf("Found API key in $%s", provider.EnvKey))
+					apiKey = envVal
+				} else if existingCfg != nil && existingCfg.AI.Provider == selectedProvider && existingCfg.AI.APIKey != "" {
+					var reuseKey bool
+					huh.NewConfirm().
+						Title("Use existing API key?").
+						Value(&reuseKey).
+						Run()
+					if reuseKey {
+						apiKey = existingCfg.AI.APIKey
+					} else {
+						huh.NewInput().
+							Title(fmt.Sprintf("Enter your %s API key:", provider.Name)).
+							Value(&apiKey).
+							EchoMode(huh.EchoModePassword).
+							Run()
+					}
+				} else {
+					huh.NewInput().
+						Title(fmt.Sprintf("Enter your %s API key:", provider.Name)).
+						Value(&apiKey).
+						EchoMode(huh.EchoModePassword).
+						Run()
+				}
+			}
+
+			// Validate connection
+			classifier := ai.NewClassifier(apiKey, provider.BaseURL, model, config.DefaultLabels())
+
+			var validateErr error
+			spinErr := spinner.New().
+				Title("Verifying connection...").
+				Action(func() {
+					validateErr = classifier.ValidateConnection(context.Background())
+				}).
+				Run()
+			if spinErr != nil {
+				return spinErr
+			}
+
+			if validateErr == nil {
+				ui.Success(fmt.Sprintf("Connected to %s / %s", selectedProvider, model))
+				break
+			}
+
+			ui.Error(fmt.Sprintf("Could not connect to %s / %s", selectedProvider, model))
+			ui.Dim("This could mean: invalid API key, model doesn't support structured output, or network issue")
+			fmt.Println()
+
+			var retry bool
+			huh.NewConfirm().
+				Title("Try again with different settings?").
+				Value(&retry).
+				Run()
+
+			if !retry {
+				return fmt.Errorf("setup cancelled")
+			}
 		}
 	}
 
