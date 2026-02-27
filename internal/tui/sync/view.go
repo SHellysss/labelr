@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/progress"
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -40,7 +39,6 @@ type SyncView struct {
 	client   *gmail.Client
 	store    *db.Store
 	spinner  spinner.Model
-	progress progress.Model
 	msgs     []struct{ ID, ThreadID string }
 	cursor   int // 0 = Yes, 1 = No
 	queued   int
@@ -54,8 +52,6 @@ func New(lastStr string, estimate int64, client *gmail.Client, store *db.Store) 
 	s.Spinner = spinner.Dot
 	s.Style = lipgloss.NewStyle().Foreground(tui.ColorGreen)
 
-	p := progress.New(progress.WithDefaultGradient())
-
 	return &SyncView{
 		phase:    phaseFetching,
 		lastStr:  lastStr,
@@ -63,7 +59,6 @@ func New(lastStr string, estimate int64, client *gmail.Client, store *db.Store) 
 		client:   client,
 		store:    store,
 		spinner:  s,
-		progress: p,
 	}
 }
 
@@ -89,10 +84,6 @@ func (v *SyncView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		v.width = msg.Width
 		v.height = msg.Height
-		v.progress.Width = msg.Width - 8
-		if v.progress.Width > 60 {
-			v.progress.Width = 60
-		}
 
 	case tea.KeyMsg:
 		switch {
@@ -124,11 +115,6 @@ func (v *SyncView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 		v.spinner, cmd = v.spinner.Update(msg)
 		return v, cmd
 
-	case progress.FrameMsg:
-		m, cmd := v.progress.Update(msg)
-		v.progress = m.(progress.Model)
-		return v, cmd
-
 	case fetchDoneMsg:
 		if msg.err != nil {
 			v.err = msg.err
@@ -156,10 +142,9 @@ func (v *SyncView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 func (v *SyncView) View() string {
 	switch v.phase {
 	case phaseFetching:
-		return fmt.Sprintf("  %s Fetching emails from the last %s...\n\n  %s",
+		return fmt.Sprintf("  %s Fetching emails from the last %s...",
 			v.spinner.View(),
 			v.lastStr,
-			v.progress.ViewAs(0),
 		)
 
 	case phaseConfirm:
@@ -176,9 +161,9 @@ func (v *SyncView) View() string {
 		)
 
 	case phaseQueuing:
-		return fmt.Sprintf("  %s Queuing emails for labeling...\n\n  %s",
+		return fmt.Sprintf("  %s Queuing %d emails for labeling...",
 			v.spinner.View(),
-			v.progress.ViewAs(0.5),
+			len(v.msgs),
 		)
 
 	case phaseDone:
