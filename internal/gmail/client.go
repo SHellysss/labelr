@@ -95,34 +95,50 @@ func (c *Client) ApplyLabel(ctx context.Context, messageID, labelID string) erro
 	return err
 }
 
-// CreateLabel creates a Gmail label and returns its ID. If it already exists, returns the existing ID.
-func (c *Client) CreateLabel(ctx context.Context, name string) (string, error) {
+// CreateLabel creates a Gmail label with the given color and returns its ID.
+// If the label already exists and has no color set, it patches the color on.
+// If it already has a color, the existing color is preserved.
+func (c *Client) CreateLabel(ctx context.Context, name, bgColor, textColor string) (string, error) {
 	label, err := c.svc.Users.Labels.Create("me", &gmail.Label{
 		Name:                  name,
 		LabelListVisibility:   "labelShow",
 		MessageListVisibility: "show",
+		Color: &gmail.LabelColor{
+			BackgroundColor: bgColor,
+			TextColor:       textColor,
+		},
 	}).Context(ctx).Do()
 	if err != nil {
-		// Check if label already exists by listing all labels
-		if existingID, findErr := c.findLabelByName(ctx, name); findErr == nil {
-			return existingID, nil
+		// Check if label already exists
+		existing, findErr := c.findLabelByName(ctx, name)
+		if findErr != nil {
+			return "", fmt.Errorf("creating label %q: %w", name, err)
 		}
-		return "", fmt.Errorf("creating label %q: %w", name, err)
+		// Patch color if the existing label has none
+		if existing.Color == nil || existing.Color.BackgroundColor == "" {
+			c.svc.Users.Labels.Patch("me", existing.Id, &gmail.Label{
+				Color: &gmail.LabelColor{
+					BackgroundColor: bgColor,
+					TextColor:       textColor,
+				},
+			}).Context(ctx).Do()
+		}
+		return existing.Id, nil
 	}
 	return label.Id, nil
 }
 
-func (c *Client) findLabelByName(ctx context.Context, name string) (string, error) {
+func (c *Client) findLabelByName(ctx context.Context, name string) (*gmail.Label, error) {
 	resp, err := c.svc.Users.Labels.List("me").Context(ctx).Do()
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	for _, l := range resp.Labels {
 		if l.Name == name {
-			return l.Id, nil
+			return l, nil
 		}
 	}
-	return "", fmt.Errorf("label %q not found", name)
+	return nil, fmt.Errorf("label %q not found", name)
 }
 
 // GetProfile returns the user's email and current historyId.
