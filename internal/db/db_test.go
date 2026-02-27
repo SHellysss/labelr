@@ -149,6 +149,48 @@ func TestLabelMappings(t *testing.T) {
 	}
 }
 
+func TestSetLabelMappingWithColor(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "test.db")
+	store, _ := Open(path)
+	defer store.Close()
+
+	err := store.SetLabelMappingWithColor("Finance", "Label_123", "#16a766", "#ffffff")
+	if err != nil {
+		t.Fatalf("SetLabelMappingWithColor failed: %v", err)
+	}
+
+	gmailID, bg, tx, err := store.GetLabelMappingWithColor("Finance")
+	if err != nil {
+		t.Fatalf("GetLabelMappingWithColor failed: %v", err)
+	}
+	if gmailID != "Label_123" {
+		t.Errorf("gmailID: got %q, want Label_123", gmailID)
+	}
+	if bg != "#16a766" {
+		t.Errorf("bg: got %q, want #16a766", bg)
+	}
+	if tx != "#ffffff" {
+		t.Errorf("tx: got %q, want #ffffff", tx)
+	}
+}
+
+func TestDeleteLabelMapping(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "test.db")
+	store, _ := Open(path)
+	defer store.Close()
+
+	store.SetLabelMapping("Finance", "Label_123")
+	err := store.DeleteLabelMapping("Finance")
+	if err != nil {
+		t.Fatalf("DeleteLabelMapping failed: %v", err)
+	}
+
+	_, err = store.GetLabelMapping("Finance")
+	if err == nil {
+		t.Error("expected error after deleting label mapping")
+	}
+}
+
 func TestStats(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "test.db")
 	store, _ := Open(path)
