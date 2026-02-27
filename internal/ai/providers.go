@@ -39,6 +39,24 @@ var providers = map[string]Provider{
 	},
 }
 
+// ProviderBaseURL returns the API base URL for a provider.
+func ProviderBaseURL(provider string) string {
+	p, ok := providers[provider]
+	if !ok {
+		return ""
+	}
+	return p.BaseURL
+}
+
+// EnvKeyForProvider returns the environment variable name for a provider's API key.
+func EnvKeyForProvider(provider string) string {
+	p, ok := providers[provider]
+	if !ok {
+		return ""
+	}
+	return p.EnvKey
+}
+
 // modelsDevKey maps our provider names to models.dev JSON keys.
 var modelsDevKey = map[string]string{
 	"openai":   "openai",

@@ -8,13 +8,14 @@ import (
 
 	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/huh/spinner"
-	"golang.org/x/oauth2"
 
 	"github.com/pankajbeniwal/labelr/internal/ai"
 	"github.com/pankajbeniwal/labelr/internal/config"
 	"github.com/pankajbeniwal/labelr/internal/db"
 	gmailpkg "github.com/pankajbeniwal/labelr/internal/gmail"
 	"github.com/pankajbeniwal/labelr/internal/service"
+	"github.com/pankajbeniwal/labelr/internal/tui"
+	tuisetup "github.com/pankajbeniwal/labelr/internal/tui/setup"
 	"github.com/pankajbeniwal/labelr/internal/ui"
 	"github.com/spf13/cobra"
 )
@@ -29,8 +30,6 @@ func NewSetupCmd() *cobra.Command {
 }
 
 func runSetup(cmd *cobra.Command, args []string) error {
-	fmt.Println()
-
 	if err := os.MkdirAll(config.Dir(), 0700); err != nil {
 		return fmt.Errorf("creating config directory: %w", err)
 	}
@@ -38,116 +37,19 @@ func runSetup(cmd *cobra.Command, args []string) error {
 	// Detect mode: first-run vs reconfigure
 	existingCfg, cfgErr := config.Load(config.DefaultPath())
 	if cfgErr == nil && existingCfg.AI.Provider != "" {
+		fmt.Println()
 		return runReconfigure(existingCfg)
 	}
 
-	return runFirstTimeSetup()
-}
-
-func runFirstTimeSetup() error {
-	ui.Bold("Welcome to labelr!")
-
-	// --- Gmail OAuth ---
-	ts, email, historyID, err := setupGmail()
+	// First-time setup — launch TUI wizard
+	wizard, err := tuisetup.NewWizard()
 	if err != nil {
 		return err
 	}
-
-	client, err := gmailpkg.NewClient(context.Background(), ts)
-	if err != nil {
-		return fmt.Errorf("creating Gmail client: %w", err)
-	}
-
-	// --- AI Provider ---
-	provider, model, apiKey, err := setupAI(nil)
-	if err != nil {
-		return err
-	}
-
-	// --- Labels ---
-	labels, err := setupLabels(nil)
-	if err != nil {
-		return err
-	}
-
-	// Save config
-	providerInfo, _ := ai.GetProvider(provider)
-	cfg := &config.Config{
-		Gmail:        config.GmailConfig{Email: email},
-		AI:           config.AIConfig{Provider: provider, Model: model, APIKey: apiKey, BaseURL: providerInfo.BaseURL},
-		Labels:       labels,
-		PollInterval: 60,
-	}
-	if err := config.Save(config.DefaultPath(), cfg); err != nil {
-		return fmt.Errorf("saving config: %w", err)
-	}
-
-	// Create labels in Gmail
-	store, err := db.Open(config.DBPath())
-	if err != nil {
-		return fmt.Errorf("opening database: %w", err)
-	}
-	defer store.Close()
-
-	createLabelsInGmail(client, store, labels)
-
-	// Store initial historyId
-	store.SetState("history_id", fmt.Sprintf("%d", historyID))
-
-	// Offer test run
-	offerTestRun(client, store)
-
-	// Auto-start daemon
-	startDaemon()
-
-	return nil
+	return tui.Run(wizard)
 }
 
-// --- Shared helpers ---
-
-func setupGmail() (oauth2.TokenSource, string, uint64, error) {
-	// Check if valid credentials already exist
-	existingTS, loadErr := gmailpkg.TokenSource(config.CredentialsPath())
-	if loadErr == nil {
-		if _, tokErr := existingTS.Token(); tokErr == nil {
-			client, err := gmailpkg.NewClient(context.Background(), existingTS)
-			if err == nil {
-				email, historyID, err := client.GetProfile(context.Background())
-				if err == nil {
-					ui.Success(fmt.Sprintf("Gmail already connected (%s)", email))
-					return existingTS, email, historyID, nil
-				}
-			}
-		}
-	}
-
-	ui.Header("Connect your Gmail account")
-	ui.Dim("Opening browser to sign in...")
-	fmt.Println()
-
-	token, err := gmailpkg.Authenticate(config.CredentialsPath())
-	if err != nil {
-		return nil, "", 0, fmt.Errorf("Gmail authentication failed: %w", err)
-	}
-	_ = token
-
-	ts, err := gmailpkg.TokenSource(config.CredentialsPath())
-	if err != nil {
-		return nil, "", 0, fmt.Errorf("creating token source: %w", err)
-	}
-
-	client, err := gmailpkg.NewClient(context.Background(), ts)
-	if err != nil {
-		return nil, "", 0, fmt.Errorf("creating Gmail client: %w", err)
-	}
-	email, historyID, err := client.GetProfile(context.Background())
-	if err != nil {
-		return nil, "", 0, fmt.Errorf("getting profile: %w", err)
-	}
-	ui.Success(fmt.Sprintf("Connected as %s", email))
-
-	return ts, email, historyID, nil
-}
+// --- Shared helpers (used by reconfigure flow) ---
 
 func setupAI(existingCfg *config.Config) (string, string, string, error) {
 	for {
@@ -370,40 +272,6 @@ func createLabelsInGmail(client *gmailpkg.Client, store *db.Store, labels []conf
 	for _, l := range labels {
 		ui.Success(l.Name)
 	}
-}
-
-func offerTestRun(client *gmailpkg.Client, store *db.Store) {
-	var testRun bool
-	huh.NewConfirm().
-		Title("Label your 10 most recent emails to test?").
-		Value(&testRun).
-		Run()
-
-	if !testRun {
-		return
-	}
-
-	var msgs []struct{ ID, ThreadID string }
-	var fetchErr error
-	spinErr := spinner.New().
-		Title("Fetching recent emails...").
-		Action(func() {
-			msgs, fetchErr = client.ListRecentMessages(context.Background(), 10)
-		}).
-		Run()
-	if spinErr != nil {
-		ui.Error(fmt.Sprintf("Error: %v", spinErr))
-		return
-	}
-	if fetchErr != nil {
-		ui.Error(fmt.Sprintf("Could not fetch recent messages: %v", fetchErr))
-		return
-	}
-
-	for _, m := range msgs {
-		store.InsertMessage(m.ID, m.ThreadID)
-	}
-	ui.Success(fmt.Sprintf("Queued %d emails for labeling", len(msgs)))
 }
 
 func startDaemon() {
