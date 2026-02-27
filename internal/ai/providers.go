@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/pankajbeniwal/labelr/internal/config"
@@ -198,6 +199,7 @@ func writeModelsCache(path string, cache *modelsCacheEntry) {
 	if err != nil {
 		return
 	}
+	_ = os.MkdirAll(filepath.Dir(path), 0700)
 	_ = os.WriteFile(path, data, 0600)
 }
 
