@@ -63,7 +63,7 @@ func TestMarkLabeled(t *testing.T) {
 
 	store.InsertMessage("msg1", "thread1")
 	store.MarkProcessing("msg1")
-	store.MarkLabeled("msg1", "Finance")
+	store.MarkLabeled("msg1", "Finance", "Invoice #123")
 
 	stats, _ := store.Stats()
 	if stats.Labeled != 1 {
@@ -200,7 +200,7 @@ func TestStats(t *testing.T) {
 	store.InsertMessage("msg2", "t2")
 	store.InsertMessage("msg3", "t3")
 	store.MarkProcessing("msg2")
-	store.MarkLabeled("msg2", "Finance")
+	store.MarkLabeled("msg2", "Finance", "Budget report")
 
 	stats, _ := store.Stats()
 	if stats.Pending != 2 {

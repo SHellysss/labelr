@@ -2,6 +2,7 @@ package status
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -25,6 +26,7 @@ type Dashboard struct {
 	height   int
 	running  bool
 	stats    *db.Stats
+	activity []db.ActivityEntry
 	lastPoll string
 	err      error
 }
@@ -77,6 +79,7 @@ func (d *Dashboard) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 	case refreshMsg:
 		d.running = msg.running
 		d.stats = msg.stats
+		d.activity = msg.activity
 		d.lastPoll = msg.lastPoll
 		d.err = msg.err
 	}
@@ -88,7 +91,9 @@ func (d *Dashboard) View() string {
 		return tui.ErrorStyle.Render("  Error: " + d.err.Error())
 	}
 
-	// Status info section
+	var sb strings.Builder
+
+	// Status line: ● Running   12 pending · 347 labeled · 3 failed
 	statusDot := lipgloss.NewStyle().Foreground(tui.ColorGreen).Render("●")
 	statusText := "Running"
 	if !d.running {
@@ -96,41 +101,91 @@ func (d *Dashboard) View() string {
 		statusText = "Stopped"
 	}
 
-	bold := lipgloss.NewStyle().Bold(true)
-	info := fmt.Sprintf("  %-12s %s %s\n", bold.Render("Daemon"), statusDot, statusText)
-	info += fmt.Sprintf("  %-12s %s\n", bold.Render("Gmail"), d.cfg.Gmail.Email)
-	info += fmt.Sprintf("  %-12s %s / %s\n", bold.Render("Provider"), d.cfg.AI.Provider, d.cfg.AI.Model)
-	info += fmt.Sprintf("  %-12s every %ds\n", bold.Render("Polling"), d.cfg.PollInterval)
+	sb.WriteString(fmt.Sprintf("  %s %s", statusDot, statusText))
 
-	// Stats cards
-	cards := ""
 	if d.stats != nil {
-		pendingCard := d.renderCard("Pending", fmt.Sprintf("%d", d.stats.Pending), tui.ColorYellow)
-		labeledCard := d.renderCard("Labeled", fmt.Sprintf("%d", d.stats.Labeled), tui.ColorGreen)
-		failedCard := d.renderCard("Failed", fmt.Sprintf("%d", d.stats.Failed), tui.ColorRed)
-		cards = "\n" + lipgloss.JoinHorizontal(lipgloss.Top, "  ", pendingCard, "  ", labeledCard, "  ", failedCard)
+		pending := lipgloss.NewStyle().Foreground(tui.ColorYellow).Bold(true).Render(fmt.Sprintf("%d", d.stats.Pending))
+		labeled := lipgloss.NewStyle().Foreground(tui.ColorGreen).Bold(true).Render(fmt.Sprintf("%d", d.stats.Labeled))
+		failed := lipgloss.NewStyle().Foreground(tui.ColorRed).Bold(true).Render(fmt.Sprintf("%d", d.stats.Failed))
+		sb.WriteString(fmt.Sprintf("   %s pending · %s labeled · %s failed", pending, labeled, failed))
 	}
 
-	// Last poll
-	pollInfo := ""
 	if d.lastPoll != "" {
-		pollInfo = fmt.Sprintf("\n\n  Last poll: %s    Refreshes: %ds", d.lastPoll, int(refreshInterval.Seconds()))
+		sb.WriteString(tui.DimStyle.Render(fmt.Sprintf("   · polled %s", d.lastPoll)))
 	}
 
-	return info + cards + pollInfo
+	sb.WriteString("\n")
+
+	// Activity feed
+	sb.WriteString("\n")
+	sb.WriteString(tui.DimStyle.Render("  Recent activity"))
+	sb.WriteString("\n")
+
+	// Separator line
+	lineWidth := 50
+	if d.width > 4 && d.width-4 < lineWidth {
+		lineWidth = d.width - 4
+	}
+	sb.WriteString("  " + tui.DimStyle.Render(strings.Repeat("─", lineWidth)))
+	sb.WriteString("\n")
+
+	if len(d.activity) == 0 {
+		sb.WriteString(tui.DimStyle.Render("  No activity yet. Queue emails with 'labelr sync'."))
+		sb.WriteString("\n")
+	} else {
+		for _, entry := range d.activity {
+			sb.WriteString(d.renderActivityEntry(entry, lineWidth))
+			sb.WriteString("\n")
+		}
+	}
+
+	// Footer: config info
+	sb.WriteString("\n")
+	sb.WriteString(tui.DimStyle.Render(fmt.Sprintf("  %s · %s / %s · every %ds",
+		d.cfg.Gmail.Email, d.cfg.AI.Provider, d.cfg.AI.Model, d.cfg.PollInterval)))
+
+	return sb.String()
 }
 
-func (d *Dashboard) renderCard(label, value string, color lipgloss.Color) string {
-	style := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(color).
-		Padding(0, 2).
-		Width(14).
-		Align(lipgloss.Center)
+func (d *Dashboard) renderActivityEntry(e db.ActivityEntry, maxWidth int) string {
+	// Parse time for relative display
+	timeStr := "  "
+	if t, err := time.Parse("2006-01-02 15:04:05", e.ProcessedAt); err == nil {
+		timeStr = relativeTime(t)
+	}
+	timeCol := tui.DimStyle.Render(fmt.Sprintf("  %-8s", timeStr))
 
-	title := lipgloss.NewStyle().Faint(true).Render(label)
-	num := lipgloss.NewStyle().Foreground(color).Bold(true).Render(value)
-	return style.Render(title + "\n" + num)
+	// Status icon
+	var icon string
+	if e.Status == "labeled" {
+		icon = tui.SuccessStyle.Render("✓")
+	} else {
+		icon = tui.ErrorStyle.Render("✗")
+	}
+
+	// Subject (truncate if needed)
+	subject := e.Subject
+	if subject == "" {
+		subject = "(no subject)"
+	}
+	maxSubjectLen := maxWidth - 30
+	if maxSubjectLen < 10 {
+		maxSubjectLen = 10
+	}
+	if len(subject) > maxSubjectLen {
+		subject = subject[:maxSubjectLen-1] + "…"
+	}
+	subjectStr := fmt.Sprintf("%-*s", maxSubjectLen, subject)
+
+	// Label or (failed)
+	var labelStr string
+	if e.Status == "labeled" && e.Label != "" {
+		labelStr = tui.DimStyle.Render("→ ") + lipgloss.NewStyle().Bold(true).Render(e.Label)
+	} else if e.Status == "failed" {
+		labelStr = tui.ErrorStyle.Render("(failed)")
+	}
+
+	return fmt.Sprintf("%s %s %s  %s", timeCol, icon, subjectStr, labelStr)
 }
 
 // Messages
@@ -138,6 +193,7 @@ func (d *Dashboard) renderCard(label, value string, color lipgloss.Color) string
 type refreshMsg struct {
 	running  bool
 	stats    *db.Stats
+	activity []db.ActivityEntry
 	lastPoll string
 	err      error
 }
@@ -154,6 +210,8 @@ func (d *Dashboard) refresh() tea.Cmd {
 			return refreshMsg{err: err}
 		}
 
+		activity, _ := d.store.RecentActivity(10)
+
 		lastPoll := ""
 		if lp, err := d.store.GetState("last_poll_time"); err == nil {
 			if t, err := time.Parse(time.RFC3339, lp); err == nil {
@@ -163,7 +221,7 @@ func (d *Dashboard) refresh() tea.Cmd {
 			}
 		}
 
-		return refreshMsg{running: running, stats: stats, lastPoll: lastPoll}
+		return refreshMsg{running: running, stats: stats, activity: activity, lastPoll: lastPoll}
 	}
 }
 

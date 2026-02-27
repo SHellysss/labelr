@@ -83,7 +83,7 @@ func (w *Worker) ProcessOne(ctx context.Context) (bool, error) {
 		return true, nil
 	}
 
-	w.store.MarkLabeled(msg.ID, label)
+	w.store.MarkLabeled(msg.ID, label, email.Subject)
 	w.logInfo("labeled %s as %q", msg.ID, label)
 	return true, nil
 }
