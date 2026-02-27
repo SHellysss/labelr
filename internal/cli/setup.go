@@ -518,12 +518,20 @@ func runReconfigure(cfg *config.Config) error {
 			if err != nil {
 				return fmt.Errorf("creating Gmail client: %w", err)
 			}
-			email, _, err := client.GetProfile(context.Background())
+			email, historyID, err := client.GetProfile(context.Background())
 			if err != nil {
 				return fmt.Errorf("getting profile: %w", err)
 			}
 			cfg.Gmail.Email = email
 			ui.Success(fmt.Sprintf("Connected as %s", email))
+
+			// Create labels in the new account and reset history ID
+			store, dbErr := db.Open(config.DBPath())
+			if dbErr == nil {
+				createLabelsInGmail(client, store, cfg.Labels)
+				store.SetState("history_id", fmt.Sprintf("%d", historyID))
+				store.Close()
+			}
 
 		case "ai":
 			provider, model, apiKey, err := setupAI(cfg)
