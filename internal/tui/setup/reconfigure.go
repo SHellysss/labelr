@@ -142,7 +142,6 @@ func (v *ReconfigureView) buildMenu() {
 			huh.NewSelect[string]().
 				Title("What would you like to change?").
 				Options(
-					huh.NewOption("Nothing, exit", "none"),
 					huh.NewOption("Gmail account", "gmail"),
 					huh.NewOption("AI provider / model", "ai"),
 					huh.NewOption("Just the model", "model"),
