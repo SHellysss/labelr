@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"strconv"
-	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/spinner"
@@ -137,16 +136,19 @@ func (v *ReconfigureView) Init() tea.Cmd {
 
 func (v *ReconfigureView) buildMenu() {
 	v.menuChoice = ""
+
+	// Format each option with the current value right-aligned using dim style
+	dim := tui.DimStyle.Render
 	v.menuForm = huh.NewForm(
 		huh.NewGroup(
 			huh.NewSelect[string]().
 				Title("What would you like to change?").
 				Options(
-					huh.NewOption("Gmail account", "gmail"),
-					huh.NewOption("AI provider / model", "ai"),
-					huh.NewOption("Just the model", "model"),
-					huh.NewOption("Labels", "labels"),
-					huh.NewOption("Poll interval", "poll"),
+					huh.NewOption(fmt.Sprintf("%-24s %s", "Gmail account", dim(v.cfg.Gmail.Email)), "gmail"),
+					huh.NewOption(fmt.Sprintf("%-24s %s", "AI provider / model", dim(v.cfg.AI.Provider+" / "+v.cfg.AI.Model)), "ai"),
+					huh.NewOption(fmt.Sprintf("%-24s %s", "Just the model", dim(v.cfg.AI.Model)), "model"),
+					huh.NewOption(fmt.Sprintf("%-24s %s", "Labels", dim(fmt.Sprintf("%d labels", len(v.cfg.Labels)))), "labels"),
+					huh.NewOption(fmt.Sprintf("%-24s %s", "Poll interval", dim(fmt.Sprintf("every %ds", v.cfg.PollInterval))), "poll"),
 				).
 				Value(&v.menuChoice),
 		),
@@ -1015,33 +1017,21 @@ func (v *ReconfigureView) updateSaving(msg tea.Msg) (tui.View, tea.Cmd) {
 // ─── View ────────────────────────────────────────
 
 func (v *ReconfigureView) View() string {
-	summary := v.renderSummary()
-
 	switch v.phase {
 	case phaseMenu:
-		return summary + "\n" + v.menuForm.View()
+		return v.menuForm.View()
 
 	case phaseSubflow:
-		return summary + "\n" + v.renderSubflow()
+		return v.renderSubflow()
 
 	case phaseSaving:
 		content := v.saveStatus
 		if !v.saveSpinner.done {
 			content += "\n" + v.saveSpinner.SpinnerView()
 		}
-		return summary + "\n" + content
+		return content
 	}
-	return summary
-}
-
-func (v *ReconfigureView) renderSummary() string {
-	bold := lipgloss.NewStyle().Bold(true)
-	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("  %-12s %s\n", bold.Render("Gmail"), v.cfg.Gmail.Email))
-	sb.WriteString(fmt.Sprintf("  %-12s %s / %s\n", bold.Render("Provider"), v.cfg.AI.Provider, v.cfg.AI.Model))
-	sb.WriteString(fmt.Sprintf("  %-12s %d labels\n", bold.Render("Labels"), len(v.cfg.Labels)))
-	sb.WriteString(fmt.Sprintf("  %-12s every %ds\n", bold.Render("Polling"), v.cfg.PollInterval))
-	return sb.String()
+	return ""
 }
 
 func (v *ReconfigureView) renderSubflow() string {
