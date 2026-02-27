@@ -84,7 +84,7 @@ func (w *Worker) ProcessOne(ctx context.Context) (bool, error) {
 	}
 
 	w.store.MarkLabeled(msg.ID, label, email.Subject)
-	w.logInfo("labeled %s as %q", msg.ID, label)
+	w.logInfo("labeled %q as %q", truncateSubject(email.Subject, 30), label)
 	return true, nil
 }
 
@@ -98,4 +98,11 @@ func (w *Worker) logError(format string, args ...any) {
 	if w.logger != nil {
 		w.logger.Error(format, args...)
 	}
+}
+
+func truncateSubject(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	return s[:max-1] + "…"
 }

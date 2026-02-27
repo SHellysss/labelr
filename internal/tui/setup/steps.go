@@ -182,8 +182,7 @@ func (s *aiStep) Init() tea.Cmd {
 				Options(options...).
 				Value(&s.provider),
 		),
-	).WithShowHelp(true)
-
+	)
 	return s.form.Init()
 }
 
@@ -217,7 +216,7 @@ func (s *aiStep) Update(msg tea.Msg) (Step, tea.Cmd) {
 							Title("Enter model name").
 							Value(&s.model),
 					),
-				).WithShowHelp(true)
+				)
 				return s, s.form.Init()
 			}
 			s.models = msg.models
@@ -234,7 +233,7 @@ func (s *aiStep) Update(msg tea.Msg) (Step, tea.Cmd) {
 						Options(options...).
 						Value(&s.model),
 				),
-			).WithShowHelp(true)
+			)
 			return s, s.form.Init()
 		}
 		return s, nil
@@ -253,7 +252,7 @@ func (s *aiStep) Update(msg tea.Msg) (Step, tea.Cmd) {
 							Title("Enter model name").
 							Value(&s.model),
 					),
-				).WithShowHelp(true)
+				)
 				return s, s.form.Init()
 			}
 			// Move to API key (skip for ollama)
@@ -285,7 +284,7 @@ func (s *aiStep) Update(msg tea.Msg) (Step, tea.Cmd) {
 						EchoMode(huh.EchoModePassword).
 						Value(&s.apiKey),
 				),
-			).WithShowHelp(true)
+			)
 			return s, s.form.Init()
 		}
 		return s, cmd
@@ -463,8 +462,7 @@ func (s *labelsStep) Init() tea.Cmd {
 				Options(options...).
 				Value(&s.selected),
 		),
-	).WithShowHelp(true)
-
+	)
 	return s.form.Init()
 }
 
@@ -498,7 +496,7 @@ func (s *labelsStep) Update(msg tea.Msg) (Step, tea.Cmd) {
 							Title("Label name").
 							Value(&s.newLabel),
 					),
-				).WithShowHelp(true)
+				)
 				return s, s.form.Init()
 			}
 			// They chose not to add more — done
@@ -522,7 +520,7 @@ func (s *labelsStep) Update(msg tea.Msg) (Step, tea.Cmd) {
 							Title("Label name (try a different name)").
 							Value(&s.newLabel),
 					),
-				).WithShowHelp(true)
+				)
 				return s, s.form.Init()
 			}
 			// Ask for description
@@ -535,7 +533,7 @@ func (s *labelsStep) Update(msg tea.Msg) (Step, tea.Cmd) {
 						Title("Description (helps AI classify)").
 						Value(&s.newDesc),
 				),
-			).WithShowHelp(true)
+			)
 			return s, s.form.Init()
 		}
 		return s, cmd
@@ -581,7 +579,7 @@ func (s *labelsStep) showAddCustom() tea.Cmd {
 				Title("Add a custom label?").
 				Value(&s.adding),
 		),
-	).WithShowHelp(true)
+	)
 	return s.form.Init()
 }
 
@@ -696,7 +694,7 @@ func (s *finishStep) Update(msg tea.Msg) (Step, tea.Cmd) {
 					Title("Label your 10 most recent emails to test?").
 					Value(&s.testConfirm),
 			),
-		).WithShowHelp(true)
+		)
 		return s, s.form.Init()
 
 	case testQueueDoneMsg:

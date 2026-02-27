@@ -71,12 +71,13 @@ type ReconfigureView struct {
 	gmailSpinner SpinnerStep
 
 	// Sub-flow: AI (reuses aiStep-like state machine)
-	aiPhase    int // 0=provider, 1=fetch-models, 2=model-select, 3=apikey, 4=validate
+	aiPhase    int // -1=entry-select, 0=provider, 1=fetch-models, 2=model-select, 3=apikey, 4=validate
 	aiForm     *huh.Form
 	aiSpinner  SpinnerStep
 	aiProvider string
 	aiModel    string
 	aiAPIKey   string
+	aiEntry    string // "full" or "model-only"
 
 	// Sub-flow: Model only
 	modelPhase int // 0=fetch, 1=select, 2=validate
@@ -146,14 +147,12 @@ func (v *ReconfigureView) buildMenu() {
 				Options(
 					huh.NewOption(fmt.Sprintf("%-24s %s", "Gmail account", dim(v.cfg.Gmail.Email)), "gmail"),
 					huh.NewOption(fmt.Sprintf("%-24s %s", "AI provider / model", dim(v.cfg.AI.Provider+" / "+v.cfg.AI.Model)), "ai"),
-					huh.NewOption(fmt.Sprintf("%-24s %s", "Just the model", dim(v.cfg.AI.Model)), "model"),
 					huh.NewOption(fmt.Sprintf("%-24s %s", "Labels", dim(fmt.Sprintf("%d labels", len(v.cfg.Labels)))), "labels"),
 					huh.NewOption(fmt.Sprintf("%-24s %s", "Poll interval", dim(fmt.Sprintf("every %ds", v.cfg.PollInterval))), "poll"),
 				).
 				Value(&v.menuChoice),
 		),
-	).WithShowHelp(true)
-}
+	)}
 
 // Choice returns the selected menu option (for backwards compat, unused now).
 func (v *ReconfigureView) Choice() string {
@@ -203,8 +202,6 @@ func (v *ReconfigureView) updateMenu(msg tea.Msg) (tui.View, tea.Cmd) {
 			return v, v.startGmailSubflow()
 		case "ai":
 			return v, v.startAISubflow()
-		case "model":
-			return v, v.startModelSubflow()
 		case "labels":
 			return v, v.startLabelsSubflow()
 		case "poll":
@@ -251,24 +248,24 @@ func (v *ReconfigureView) doGmailReauth() tea.Cmd {
 func (v *ReconfigureView) startAISubflow() tea.Cmd {
 	v.phase = phaseSubflow
 	v.subflow = subflowAI
-	v.aiPhase = 0
+	v.aiPhase = -1
 	v.aiProvider = ""
 	v.aiModel = ""
 	v.aiAPIKey = ""
+	v.aiEntry = ""
 
-	providerNames := ai.ProviderNamesOrdered()
-	options := make([]huh.Option[string], len(providerNames))
-	for i, name := range providerNames {
-		options[i] = huh.NewOption(name, name)
-	}
+	dim := tui.DimStyle.Render
 	v.aiForm = huh.NewForm(
 		huh.NewGroup(
 			huh.NewSelect[string]().
-				Title("Choose your AI provider").
-				Options(options...).
-				Value(&v.aiProvider),
+				Title("AI provider / model").
+				Options(
+					huh.NewOption(fmt.Sprintf("%-28s %s", "Change provider and model", dim(v.cfg.AI.Provider+" / "+v.cfg.AI.Model)), "full"),
+					huh.NewOption(fmt.Sprintf("%-28s %s", "Just change the model", dim(v.cfg.AI.Model)), "model-only"),
+				).
+				Value(&v.aiEntry),
 		),
-	).WithShowHelp(true)
+	)
 	return v.aiForm.Init()
 }
 
@@ -318,7 +315,7 @@ func (v *ReconfigureView) showLabelMenu() tea.Cmd {
 				).
 				Value(&v.labelAction),
 		),
-	).WithShowHelp(true)
+	)
 	return v.labelForm.Init()
 }
 
@@ -335,7 +332,7 @@ func (v *ReconfigureView) startPollSubflow() tea.Cmd {
 				Title("Poll interval (seconds)").
 				Value(&v.pollStr),
 		),
-	).WithShowHelp(true)
+	)
 	return v.pollForm.Init()
 }
 
@@ -418,6 +415,35 @@ func (v *ReconfigureView) updateGmail(msg tea.Msg) (tui.View, tea.Cmd) {
 
 func (v *ReconfigureView) updateAI(msg tea.Msg) (tui.View, tea.Cmd) {
 	switch v.aiPhase {
+	case -1: // Entry sub-select: full change vs model-only
+		form, cmd := v.aiForm.Update(msg)
+		if f, ok := form.(*huh.Form); ok {
+			v.aiForm = f
+		}
+		if v.aiForm.State == huh.StateCompleted {
+			if v.aiEntry == "model-only" {
+				// Dispatch to model-only subflow
+				return v, v.startModelSubflow()
+			}
+			// Full provider change — show provider select
+			v.aiPhase = 0
+			providerNames := ai.ProviderNamesOrdered()
+			options := make([]huh.Option[string], len(providerNames))
+			for i, name := range providerNames {
+				options[i] = huh.NewOption(name, name)
+			}
+			v.aiForm = huh.NewForm(
+				huh.NewGroup(
+					huh.NewSelect[string]().
+						Title("Choose your AI provider").
+						Options(options...).
+						Value(&v.aiProvider),
+				),
+			)
+			return v, v.aiForm.Init()
+		}
+		return v, cmd
+
 	case 0: // Provider selection
 		form, cmd := v.aiForm.Update(msg)
 		if f, ok := form.(*huh.Form); ok {
@@ -445,7 +471,7 @@ func (v *ReconfigureView) updateAI(msg tea.Msg) (tui.View, tea.Cmd) {
 							Title("Enter model name").
 							Value(&v.aiModel),
 					),
-				).WithShowHelp(true)
+				)
 				return v, v.aiForm.Init()
 			}
 			options := make([]huh.Option[string], 0, len(msg.models)+1)
@@ -460,7 +486,7 @@ func (v *ReconfigureView) updateAI(msg tea.Msg) (tui.View, tea.Cmd) {
 						Options(options...).
 						Value(&v.aiModel),
 				),
-			).WithShowHelp(true)
+			)
 			return v, v.aiForm.Init()
 		}
 		return v, nil
@@ -479,7 +505,7 @@ func (v *ReconfigureView) updateAI(msg tea.Msg) (tui.View, tea.Cmd) {
 							Title("Enter model name").
 							Value(&v.aiModel),
 					),
-				).WithShowHelp(true)
+				)
 				return v, v.aiForm.Init()
 			}
 			// Skip API key for ollama
@@ -505,7 +531,7 @@ func (v *ReconfigureView) updateAI(msg tea.Msg) (tui.View, tea.Cmd) {
 							Title("Use existing API key?").
 							Value(&reuseKey),
 					),
-				).WithShowHelp(true)
+				)
 				// Store reuse decision via a wrapper
 				return v, v.aiForm.Init()
 			}
@@ -517,7 +543,7 @@ func (v *ReconfigureView) updateAI(msg tea.Msg) (tui.View, tea.Cmd) {
 						EchoMode(huh.EchoModePassword).
 						Value(&v.aiAPIKey),
 				),
-			).WithShowHelp(true)
+			)
 			return v, v.aiForm.Init()
 		}
 		return v, cmd
@@ -544,7 +570,7 @@ func (v *ReconfigureView) updateAI(msg tea.Msg) (tui.View, tea.Cmd) {
 							EchoMode(huh.EchoModePassword).
 							Value(&v.aiAPIKey),
 					),
-				).WithShowHelp(true)
+				)
 				return v, v.aiForm.Init()
 			}
 			return v, v.applyAIChanges()
@@ -629,7 +655,7 @@ func (v *ReconfigureView) updateModel(msg tea.Msg) (tui.View, tea.Cmd) {
 							Title("Enter model name").
 							Value(&v.modelVal),
 					),
-				).WithShowHelp(true)
+				)
 				return v, v.modelForm.Init()
 			}
 			options := make([]huh.Option[string], 0, len(msg.models)+1)
@@ -644,7 +670,7 @@ func (v *ReconfigureView) updateModel(msg tea.Msg) (tui.View, tea.Cmd) {
 						Options(options...).
 						Value(&v.modelVal),
 				),
-			).WithShowHelp(true)
+			)
 			return v, v.modelForm.Init()
 		}
 		return v, nil
@@ -663,7 +689,7 @@ func (v *ReconfigureView) updateModel(msg tea.Msg) (tui.View, tea.Cmd) {
 							Title("Enter model name").
 							Value(&v.modelVal),
 					),
-				).WithShowHelp(true)
+				)
 				return v, v.modelForm.Init()
 			}
 			// Validate
@@ -733,7 +759,7 @@ func (v *ReconfigureView) updateLabels(msg tea.Msg) (tui.View, tea.Cmd) {
 							Title("Label name").
 							Value(&v.labelName),
 					),
-				).WithShowHelp(true)
+				)
 				return v, v.labelForm.Init()
 			case "remove":
 				if len(v.cfg.Labels) == 0 {
@@ -753,7 +779,7 @@ func (v *ReconfigureView) updateLabels(msg tea.Msg) (tui.View, tea.Cmd) {
 							Options(options...).
 							Value(&v.labelRemSel),
 					),
-				).WithShowHelp(true)
+				)
 				return v, v.labelForm.Init()
 			}
 		}
@@ -779,7 +805,7 @@ func (v *ReconfigureView) updateLabels(msg tea.Msg) (tui.View, tea.Cmd) {
 							Title("Label name (try a different name)").
 							Value(&v.labelName),
 					),
-				).WithShowHelp(true)
+				)
 				return v, v.labelForm.Init()
 			}
 			v.labelPhase = 2
@@ -791,7 +817,7 @@ func (v *ReconfigureView) updateLabels(msg tea.Msg) (tui.View, tea.Cmd) {
 						Title("Description (helps AI classify)").
 						Value(&v.labelDesc),
 				),
-			).WithShowHelp(true)
+			)
 			return v, v.labelForm.Init()
 		}
 		return v, cmd
@@ -935,7 +961,7 @@ func (v *ReconfigureView) updatePoll(msg tea.Msg) (tui.View, tea.Cmd) {
 						Title("Poll interval (seconds)").
 						Value(&v.pollStr),
 				),
-			).WithShowHelp(true)
+			)
 			return v, v.pollForm.Init()
 		}
 		v.cfg.PollInterval = interval
@@ -1042,6 +1068,8 @@ func (v *ReconfigureView) renderSubflow() string {
 
 	case subflowAI:
 		switch v.aiPhase {
+		case -1:
+			return v.aiForm.View()
 		case 0:
 			return v.aiForm.View()
 		case 1:

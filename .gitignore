@@ -6,3 +6,4 @@ bin/
 .env
 .worktrees/
 labelr
+dist/
