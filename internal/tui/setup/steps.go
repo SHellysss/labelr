@@ -175,7 +175,7 @@ func (s *aiStep) Init() tea.Cmd {
 		options[i] = huh.NewOption(name, name)
 	}
 
-	s.form = huh.NewForm(
+	s.form = newForm(
 		huh.NewGroup(
 			huh.NewSelect[string]().
 				Title("Choose your AI provider").
@@ -210,7 +210,7 @@ func (s *aiStep) Update(msg tea.Msg) (Step, tea.Cmd) {
 			if msg.err != nil || len(msg.models) == 0 {
 				// Fall back to text input
 				s.phase = 2
-				s.form = huh.NewForm(
+				s.form = newForm(
 					huh.NewGroup(
 						huh.NewInput().
 							Title("Enter model name").
@@ -226,7 +226,7 @@ func (s *aiStep) Update(msg tea.Msg) (Step, tea.Cmd) {
 				options = append(options, huh.NewOption(m, m))
 			}
 			options = append(options, huh.NewOption("Other (custom)", "__other__"))
-			s.form = huh.NewForm(
+			s.form = newForm(
 				huh.NewGroup(
 					huh.NewSelect[string]().
 						Title("Which model?").
@@ -246,7 +246,7 @@ func (s *aiStep) Update(msg tea.Msg) (Step, tea.Cmd) {
 		if s.form.State == huh.StateCompleted {
 			if s.model == "__other__" {
 				s.model = ""
-				s.form = huh.NewForm(
+				s.form = newForm(
 					huh.NewGroup(
 						huh.NewInput().
 							Title("Enter model name").
@@ -277,7 +277,7 @@ func (s *aiStep) Update(msg tea.Msg) (Step, tea.Cmd) {
 					return s, nil
 				}
 			}
-			s.form = huh.NewForm(
+			s.form = newForm(
 				huh.NewGroup(
 					huh.NewInput().
 						Title("API key").
@@ -455,7 +455,7 @@ func (s *labelsStep) Init() tea.Cmd {
 		options[i] = huh.NewOption(l.Name, l.Name).Selected(true)
 	}
 
-	s.form = huh.NewForm(
+	s.form = newForm(
 		huh.NewGroup(
 			huh.NewMultiSelect[string]().
 				Title("Select labels to use").
@@ -490,7 +490,7 @@ func (s *labelsStep) Update(msg tea.Msg) (Step, tea.Cmd) {
 				s.phase = 2
 				s.dupErr = ""
 				s.newLabel = ""
-				s.form = huh.NewForm(
+				s.form = newForm(
 					huh.NewGroup(
 						huh.NewInput().
 							Title("Label name").
@@ -514,7 +514,7 @@ func (s *labelsStep) Update(msg tea.Msg) (Step, tea.Cmd) {
 			if s.isDuplicate(s.newLabel) {
 				s.dupErr = fmt.Sprintf("Label %q already exists", s.newLabel)
 				s.newLabel = ""
-				s.form = huh.NewForm(
+				s.form = newForm(
 					huh.NewGroup(
 						huh.NewInput().
 							Title("Label name (try a different name)").
@@ -527,7 +527,7 @@ func (s *labelsStep) Update(msg tea.Msg) (Step, tea.Cmd) {
 			s.phase = 3
 			s.dupErr = ""
 			s.newDesc = ""
-			s.form = huh.NewForm(
+			s.form = newForm(
 				huh.NewGroup(
 					huh.NewInput().
 						Title("Description (helps AI classify)").
@@ -573,7 +573,7 @@ func (s *labelsStep) isDuplicate(name string) bool {
 
 func (s *labelsStep) showAddCustom() tea.Cmd {
 	s.adding = true
-	s.form = huh.NewForm(
+	s.form = newForm(
 		huh.NewGroup(
 			huh.NewConfirm().
 				Title("Add a custom label?").
@@ -688,7 +688,7 @@ func (s *finishStep) Update(msg tea.Msg) (Step, tea.Cmd) {
 		// Offer test run
 		s.phase = 1
 		s.testConfirm = true
-		s.form = huh.NewForm(
+		s.form = newForm(
 			huh.NewGroup(
 				huh.NewConfirm().
 					Title("Label your 10 most recent emails to test?").

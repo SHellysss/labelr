@@ -140,7 +140,7 @@ func (v *ReconfigureView) buildMenu() {
 
 	// Format each option with the current value right-aligned using dim style
 	dim := tui.DimStyle.Render
-	v.menuForm = huh.NewForm(
+	v.menuForm = newForm(
 		huh.NewGroup(
 			huh.NewSelect[string]().
 				Title("What would you like to change?").
@@ -255,7 +255,7 @@ func (v *ReconfigureView) startAISubflow() tea.Cmd {
 	v.aiEntry = ""
 
 	dim := tui.DimStyle.Render
-	v.aiForm = huh.NewForm(
+	v.aiForm = newForm(
 		huh.NewGroup(
 			huh.NewSelect[string]().
 				Title("AI provider / model").
@@ -304,7 +304,7 @@ func (v *ReconfigureView) startLabelsSubflow() tea.Cmd {
 func (v *ReconfigureView) showLabelMenu() tea.Cmd {
 	v.labelPhase = 0
 	v.labelAction = ""
-	v.labelForm = huh.NewForm(
+	v.labelForm = newForm(
 		huh.NewGroup(
 			huh.NewSelect[string]().
 				Title("Labels").
@@ -326,7 +326,7 @@ func (v *ReconfigureView) startPollSubflow() tea.Cmd {
 	v.subflow = subflowPoll
 	v.pollStr = ""
 	v.pollErr = ""
-	v.pollForm = huh.NewForm(
+	v.pollForm = newForm(
 		huh.NewGroup(
 			huh.NewInput().
 				Title("Poll interval (seconds)").
@@ -432,7 +432,7 @@ func (v *ReconfigureView) updateAI(msg tea.Msg) (tui.View, tea.Cmd) {
 			for i, name := range providerNames {
 				options[i] = huh.NewOption(name, name)
 			}
-			v.aiForm = huh.NewForm(
+			v.aiForm = newForm(
 				huh.NewGroup(
 					huh.NewSelect[string]().
 						Title("Choose your AI provider").
@@ -465,7 +465,7 @@ func (v *ReconfigureView) updateAI(msg tea.Msg) (tui.View, tea.Cmd) {
 		case modelsFetchedMsg:
 			v.aiPhase = 2
 			if msg.err != nil || len(msg.models) == 0 {
-				v.aiForm = huh.NewForm(
+				v.aiForm = newForm(
 					huh.NewGroup(
 						huh.NewInput().
 							Title("Enter model name").
@@ -479,7 +479,7 @@ func (v *ReconfigureView) updateAI(msg tea.Msg) (tui.View, tea.Cmd) {
 				options = append(options, huh.NewOption(m, m))
 			}
 			options = append(options, huh.NewOption("Other (custom)", "__other__"))
-			v.aiForm = huh.NewForm(
+			v.aiForm = newForm(
 				huh.NewGroup(
 					huh.NewSelect[string]().
 						Title("Which model?").
@@ -499,7 +499,7 @@ func (v *ReconfigureView) updateAI(msg tea.Msg) (tui.View, tea.Cmd) {
 		if v.aiForm.State == huh.StateCompleted {
 			if v.aiModel == "__other__" {
 				v.aiModel = ""
-				v.aiForm = huh.NewForm(
+				v.aiForm = newForm(
 					huh.NewGroup(
 						huh.NewInput().
 							Title("Enter model name").
@@ -525,7 +525,7 @@ func (v *ReconfigureView) updateAI(msg tea.Msg) (tui.View, tea.Cmd) {
 				v.aiPhase = 3
 				v.aiAPIKey = ""
 				var reuseKey bool
-				v.aiForm = huh.NewForm(
+				v.aiForm = newForm(
 					huh.NewGroup(
 						huh.NewConfirm().
 							Title("Use existing API key?").
@@ -536,7 +536,7 @@ func (v *ReconfigureView) updateAI(msg tea.Msg) (tui.View, tea.Cmd) {
 				return v, v.aiForm.Init()
 			}
 			v.aiPhase = 3
-			v.aiForm = huh.NewForm(
+			v.aiForm = newForm(
 				huh.NewGroup(
 					huh.NewInput().
 						Title(fmt.Sprintf("Enter your API key")).
@@ -563,7 +563,7 @@ func (v *ReconfigureView) updateAI(msg tea.Msg) (tui.View, tea.Cmd) {
 			}
 			if v.aiAPIKey == "" {
 				// They said no to reuse — show input
-				v.aiForm = huh.NewForm(
+				v.aiForm = newForm(
 					huh.NewGroup(
 						huh.NewInput().
 							Title("Enter your API key").
@@ -649,7 +649,7 @@ func (v *ReconfigureView) updateModel(msg tea.Msg) (tui.View, tea.Cmd) {
 		case modelsFetchedMsg:
 			v.modelPhase = 1
 			if msg.err != nil || len(msg.models) == 0 {
-				v.modelForm = huh.NewForm(
+				v.modelForm = newForm(
 					huh.NewGroup(
 						huh.NewInput().
 							Title("Enter model name").
@@ -663,7 +663,7 @@ func (v *ReconfigureView) updateModel(msg tea.Msg) (tui.View, tea.Cmd) {
 				options = append(options, huh.NewOption(m, m))
 			}
 			options = append(options, huh.NewOption("Other (custom)", "__other__"))
-			v.modelForm = huh.NewForm(
+			v.modelForm = newForm(
 				huh.NewGroup(
 					huh.NewSelect[string]().
 						Title("Which model?").
@@ -683,7 +683,7 @@ func (v *ReconfigureView) updateModel(msg tea.Msg) (tui.View, tea.Cmd) {
 		if v.modelForm.State == huh.StateCompleted {
 			if v.modelVal == "__other__" {
 				v.modelVal = ""
-				v.modelForm = huh.NewForm(
+				v.modelForm = newForm(
 					huh.NewGroup(
 						huh.NewInput().
 							Title("Enter model name").
@@ -753,7 +753,7 @@ func (v *ReconfigureView) updateLabels(msg tea.Msg) (tui.View, tea.Cmd) {
 				v.labelPhase = 1
 				v.labelDupErr = ""
 				v.labelName = ""
-				v.labelForm = huh.NewForm(
+				v.labelForm = newForm(
 					huh.NewGroup(
 						huh.NewInput().
 							Title("Label name").
@@ -772,7 +772,7 @@ func (v *ReconfigureView) updateLabels(msg tea.Msg) (tui.View, tea.Cmd) {
 				for i, l := range v.cfg.Labels {
 					options[i] = huh.NewOption(fmt.Sprintf("%s — %s", l.Name, l.Description), l.Name)
 				}
-				v.labelForm = huh.NewForm(
+				v.labelForm = newForm(
 					huh.NewGroup(
 						huh.NewMultiSelect[string]().
 							Title("Select labels to remove").
@@ -799,7 +799,7 @@ func (v *ReconfigureView) updateLabels(msg tea.Msg) (tui.View, tea.Cmd) {
 			if v.isLabelDuplicate(v.labelName) {
 				v.labelDupErr = fmt.Sprintf("Label %q already exists", v.labelName)
 				v.labelName = ""
-				v.labelForm = huh.NewForm(
+				v.labelForm = newForm(
 					huh.NewGroup(
 						huh.NewInput().
 							Title("Label name (try a different name)").
@@ -811,7 +811,7 @@ func (v *ReconfigureView) updateLabels(msg tea.Msg) (tui.View, tea.Cmd) {
 			v.labelPhase = 2
 			v.labelDupErr = ""
 			v.labelDesc = ""
-			v.labelForm = huh.NewForm(
+			v.labelForm = newForm(
 				huh.NewGroup(
 					huh.NewInput().
 						Title("Description (helps AI classify)").
@@ -955,7 +955,7 @@ func (v *ReconfigureView) updatePoll(msg tea.Msg) (tui.View, tea.Cmd) {
 		if err != nil || interval <= 0 {
 			v.pollErr = "Please enter a positive number"
 			v.pollStr = ""
-			v.pollForm = huh.NewForm(
+			v.pollForm = newForm(
 				huh.NewGroup(
 					huh.NewInput().
 						Title("Poll interval (seconds)").

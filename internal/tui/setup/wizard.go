@@ -6,6 +6,7 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/pankajbeniwal/labelr/internal/config"
 	"github.com/pankajbeniwal/labelr/internal/db"
@@ -200,6 +201,12 @@ func newSpinnerStep(title string) SpinnerStep {
 	s.Spinner = spinner.Dot
 	s.Style = lipgloss.NewStyle().Foreground(tui.ColorGreen)
 	return SpinnerStep{spinner: s, title: title}
+}
+
+// newForm wraps huh.NewForm with ShowHelp disabled, since the shell renders
+// its own help footer.
+func newForm(groups ...*huh.Group) *huh.Form {
+	return huh.NewForm(groups...).WithShowHelp(false)
 }
 
 func (s *SpinnerStep) SpinnerView() string {
