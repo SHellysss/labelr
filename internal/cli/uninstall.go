@@ -36,10 +36,16 @@ func runUninstall(cmd *cobra.Command, args []string) error {
 
 	// Ask about data
 	var keepData bool
-	huh.NewConfirm().
+	err := huh.NewConfirm().
 		Title("Keep your data (~/.labelr/)?").
 		Value(&keepData).
 		Run()
+	if err != nil {
+		fmt.Println()
+		ui.Dim("Cancelled.")
+		fmt.Println()
+		return nil
+	}
 
 	if keepData {
 		ui.Info(fmt.Sprintf("Data kept at %s", config.Dir()))
