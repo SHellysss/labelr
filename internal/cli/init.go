@@ -232,8 +232,13 @@ func runInit(cmd *cobra.Command, args []string) error {
 	spinErr := spinner.New().
 		Title("Creating Gmail labels...").
 		Action(func() {
+			customIdx := 0
 			for _, l := range labels {
-				gmailID, err := client.CreateLabel(context.Background(), l.Name)
+				bg, tx := gmailpkg.ColorForLabel(l.Name, customIdx)
+				if !gmailpkg.IsDefaultLabel(l.Name) {
+					customIdx++
+				}
+				gmailID, err := client.CreateLabel(context.Background(), l.Name, bg, tx)
 				if err != nil {
 					labelErr = err
 					continue
