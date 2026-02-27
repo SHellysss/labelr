@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"os"
 
 	"github.com/charmbracelet/huh"
 	"github.com/pankajbeniwal/labelr/internal/ai"
@@ -106,10 +107,29 @@ func runConfig(cmd *cobra.Command, args []string) error {
 		cfg.AI.Model = model
 
 		if provider.EnvKey != "" {
-			var apiKey string
-			huh.NewInput().Title("API key:").Value(&apiKey).EchoMode(huh.EchoModePassword).Run()
-			if apiKey != "" {
-				cfg.AI.APIKey = apiKey
+			if envVal := os.Getenv(provider.EnvKey); envVal != "" {
+				ui.Info(fmt.Sprintf("Found API key in $%s", provider.EnvKey))
+				cfg.AI.APIKey = envVal
+			} else if selectedProvider == cfg.AI.Provider && cfg.AI.APIKey != "" {
+				// Same provider — offer to reuse existing key
+				var reuseKey bool
+				huh.NewConfirm().
+					Title("Use existing API key?").
+					Value(&reuseKey).
+					Run()
+				if !reuseKey {
+					var apiKey string
+					huh.NewInput().Title("API key:").Value(&apiKey).EchoMode(huh.EchoModePassword).Run()
+					if apiKey != "" {
+						cfg.AI.APIKey = apiKey
+					}
+				}
+			} else {
+				var apiKey string
+				huh.NewInput().Title("API key:").Value(&apiKey).EchoMode(huh.EchoModePassword).Run()
+				if apiKey != "" {
+					cfg.AI.APIKey = apiKey
+				}
 			}
 		}
 
