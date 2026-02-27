@@ -19,13 +19,12 @@ func main() {
 	}
 
 	rootCmd.AddCommand(
-		cli.NewInitCmd(),
+		cli.NewSetupCmd(),
 		cli.NewDaemonCmd(),
 		cli.NewStartCmd(),
 		cli.NewStopCmd(),
 		cli.NewStatusCmd(),
 		cli.NewLogsCmd(),
-		cli.NewConfigCmd(),
 		cli.NewSyncCmd(),
 		cli.NewUninstallCmd(),
 	)
