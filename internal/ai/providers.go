@@ -70,6 +70,14 @@ func ProviderNames() []string {
 	return names
 }
 
+// providerOrder is the fixed display order for provider selection.
+var providerOrder = []string{"openai", "deepseek", "groq", "ollama"}
+
+// ProviderNamesOrdered returns provider names in a fixed, deterministic order.
+func ProviderNamesOrdered() []string {
+	return append([]string{}, providerOrder...)
+}
+
 // modelsDevProvider represents a provider entry in the models.dev API response.
 // The models field is a map keyed by model ID, not an array.
 type modelsDevProvider struct {
@@ -175,36 +183,39 @@ func writeModelsCache(path string, cache *modelsCacheEntry) {
 	_ = os.WriteFile(path, data, 0600)
 }
 
-// OllamaModel represents a running Ollama model from /api/ps.
+// OllamaModel represents an Ollama model from /api/tags.
 type OllamaModel struct {
 	Name string `json:"name"`
 }
 
-type ollamaPsResponse struct {
+// ollamaBaseURL is the base URL for Ollama. Overridable in tests.
+var ollamaBaseURL = "http://localhost:11434"
+
+// ollamaTagsResponse represents the /api/tags response (all pulled models).
+type ollamaTagsResponse struct {
 	Models []OllamaModel `json:"models"`
 }
 
-// FetchOllamaModels queries localhost:11434/api/ps for running models.
-// Returns the model list, or an error if Ollama is not reachable.
+// FetchOllamaModels queries Ollama /api/tags for all pulled models.
 func FetchOllamaModels() ([]string, error) {
 	client := &http.Client{Timeout: 3 * time.Second}
-	resp, err := client.Get("http://localhost:11434/api/ps")
+	resp, err := client.Get(ollamaBaseURL + "/api/tags")
 	if err != nil {
 		return nil, fmt.Errorf("cannot reach Ollama at localhost:11434 — is it running?\n\n  To install: https://ollama.com/download\n  To start:   ollama serve")
 	}
 	defer resp.Body.Close()
 
-	var ps ollamaPsResponse
-	if err := json.NewDecoder(resp.Body).Decode(&ps); err != nil {
+	var tags ollamaTagsResponse
+	if err := json.NewDecoder(resp.Body).Decode(&tags); err != nil {
 		return nil, fmt.Errorf("parsing Ollama response: %w", err)
 	}
 
-	if len(ps.Models) == 0 {
-		return nil, fmt.Errorf("no models running in Ollama\n\n  To pull a model:  ollama pull llama3\n  To run a model:   ollama run llama3")
+	if len(tags.Models) == 0 {
+		return nil, fmt.Errorf("no models found in Ollama\n\n  To pull a model:  ollama pull llama3\n  To run a model:   ollama run llama3")
 	}
 
-	names := make([]string, len(ps.Models))
-	for i, m := range ps.Models {
+	names := make([]string, len(tags.Models))
+	for i, m := range tags.Models {
 		names[i] = m.Name
 	}
 	return names, nil

@@ -128,6 +128,11 @@ func (c *Client) CreateLabel(ctx context.Context, name, bgColor, textColor strin
 	return label.Id, nil
 }
 
+// DeleteLabel deletes a Gmail label by its ID.
+func (c *Client) DeleteLabel(ctx context.Context, labelID string) error {
+	return c.svc.Users.Labels.Delete("me", labelID).Context(ctx).Do()
+}
+
 func (c *Client) findLabelByName(ctx context.Context, name string) (*gmail.Label, error) {
 	resp, err := c.svc.Users.Labels.List("me").Context(ctx).Do()
 	if err != nil {

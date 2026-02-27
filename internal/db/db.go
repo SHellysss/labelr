@@ -85,7 +85,16 @@ func (s *Store) migrate() error {
 			return fmt.Errorf("migration failed: %w", err)
 		}
 	}
+
+	// Add color columns (safe to run on existing DBs — ignores "duplicate column" errors)
+	s.migrateAddColumn("label_mappings", "bg_color", "TEXT NOT NULL DEFAULT ''")
+	s.migrateAddColumn("label_mappings", "text_color", "TEXT NOT NULL DEFAULT ''")
+
 	return nil
+}
+
+func (s *Store) migrateAddColumn(table, column, colDef string) {
+	_, _ = s.db.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", table, column, colDef))
 }
 
 func (s *Store) InsertMessage(id, threadID string) error {
@@ -184,6 +193,27 @@ func (s *Store) GetLabelMapping(name string) (string, error) {
 	var gmailID string
 	err := s.db.QueryRow(`SELECT gmail_id FROM label_mappings WHERE name = ?`, name).Scan(&gmailID)
 	return gmailID, err
+}
+
+func (s *Store) SetLabelMappingWithColor(name, gmailID, bgColor, textColor string) error {
+	_, err := s.db.Exec(
+		`INSERT INTO label_mappings (name, gmail_id, bg_color, text_color) VALUES (?, ?, ?, ?)
+		 ON CONFLICT(name) DO UPDATE SET gmail_id = ?, bg_color = ?, text_color = ?`,
+		name, gmailID, bgColor, textColor, gmailID, bgColor, textColor,
+	)
+	return err
+}
+
+func (s *Store) GetLabelMappingWithColor(name string) (gmailID, bgColor, textColor string, err error) {
+	err = s.db.QueryRow(
+		`SELECT gmail_id, bg_color, text_color FROM label_mappings WHERE name = ?`, name,
+	).Scan(&gmailID, &bgColor, &textColor)
+	return
+}
+
+func (s *Store) DeleteLabelMapping(name string) error {
+	_, err := s.db.Exec(`DELETE FROM label_mappings WHERE name = ?`, name)
+	return err
 }
 
 func (s *Store) AllLabelMappings() (map[string]string, error) {

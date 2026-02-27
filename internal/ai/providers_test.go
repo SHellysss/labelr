@@ -42,6 +42,19 @@ func TestGetProviderUnknown(t *testing.T) {
 	}
 }
 
+func TestProviderNamesOrdered(t *testing.T) {
+	names := ProviderNamesOrdered()
+	expected := []string{"openai", "deepseek", "groq", "ollama"}
+	if len(names) != len(expected) {
+		t.Fatalf("got %d providers, want %d", len(names), len(expected))
+	}
+	for i, name := range names {
+		if name != expected[i] {
+			t.Errorf("index %d: got %q, want %q", i, name, expected[i])
+		}
+	}
+}
+
 func TestListProviders(t *testing.T) {
 	providers := ListProviders()
 	if len(providers) < 4 {
@@ -551,6 +564,53 @@ func TestFetchModelsForProvider_AllExplicitlyFalse(t *testing.T) {
 	// All explicitly false → none included
 	if len(models) != 0 {
 		t.Errorf("expected 0 models (all false), got %d: %v", len(models), models)
+	}
+}
+
+func TestFetchOllamaModels_UsesApiTags(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/tags" {
+			t.Errorf("expected /api/tags, got %s", r.URL.Path)
+			w.WriteHeader(404)
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"models": []map[string]interface{}{
+				{"name": "llama3:latest", "model": "llama3:latest"},
+				{"name": "mistral:latest", "model": "mistral:latest"},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	origURL := ollamaBaseURL
+	ollamaBaseURL = srv.URL
+	defer func() { ollamaBaseURL = origURL }()
+
+	models, err := FetchOllamaModels()
+	if err != nil {
+		t.Fatalf("FetchOllamaModels failed: %v", err)
+	}
+	if len(models) != 2 {
+		t.Fatalf("expected 2 models, got %d: %v", len(models), models)
+	}
+}
+
+func TestFetchOllamaModels_NoModels(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"models": []map[string]interface{}{},
+		})
+	}))
+	defer srv.Close()
+
+	origURL := ollamaBaseURL
+	ollamaBaseURL = srv.URL
+	defer func() { ollamaBaseURL = origURL }()
+
+	_, err := FetchOllamaModels()
+	if err == nil {
+		t.Error("expected error for no models")
 	}
 }
 
