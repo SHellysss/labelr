@@ -340,35 +340,19 @@ func findBinary() string {
 
 func runReconfigure(cfg *config.Config) error {
 	for {
-		// Show current config
-		ui.Bold("Current configuration")
-		fmt.Println("  ──────────────────────")
-		ui.KeyValue("Gmail", cfg.Gmail.Email)
-		ui.KeyValue("Provider", cfg.AI.Provider)
-		ui.KeyValue("Model", cfg.AI.Model)
+		// Show TUI menu with config summary
+		view := tuisetup.NewReconfigureView(cfg)
+		if err := tui.Run(view); err != nil {
+			return err
+		}
 
-		ui.KeyValue("Labels", fmt.Sprintf("%d labels", len(cfg.Labels)))
-		ui.KeyValue("Poll", fmt.Sprintf("%ds", cfg.PollInterval))
-		fmt.Println()
-
-		var editChoice string
-		huh.NewSelect[string]().
-			Title("What would you like to change?").
-			Options(
-				huh.NewOption("Nothing, exit", "none"),
-				huh.NewOption("Gmail account", "gmail"),
-				huh.NewOption("AI provider / model", "ai"),
-				huh.NewOption("Just the model", "model"),
-				huh.NewOption("Labels", "labels"),
-				huh.NewOption("Poll interval", "poll"),
-			).
-			Value(&editChoice).
-			Run()
-
-		switch editChoice {
-		case "none":
+		choice := view.Choice()
+		if choice == "none" || choice == "" {
 			return nil
+		}
 
+		// Execute sub-flow outside TUI (these use blocking huh prompts)
+		switch choice {
 		case "gmail":
 			ui.Dim("Opening browser to sign in...")
 			fmt.Println()

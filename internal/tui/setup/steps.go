@@ -423,17 +423,20 @@ func (s *validateStep) validate() tea.Cmd {
 // ──────────────────────────────────────────
 
 type labelsStep struct {
-	deps     *Deps
-	form     *huh.Form
-	phase    int // 0=multiselect, 1=add-custom-loop
-	selected []string
-	adding   bool
-	newLabel string
-	done     bool
+	deps        *Deps
+	form        *huh.Form
+	phase       int // 0=multiselect, 1=add-custom-loop, 2=name-input, 3=desc-input
+	selected    []string
+	customDescs map[string]string // name -> description for custom labels
+	adding      bool
+	newLabel    string
+	newDesc     string
+	dupErr      string
+	done        bool
 }
 
 func newLabelsStep(deps *Deps) *labelsStep {
-	return &labelsStep{deps: deps}
+	return &labelsStep{deps: deps, customDescs: make(map[string]string)}
 }
 
 func (s *labelsStep) CanGoBack() bool { return true }
@@ -478,14 +481,17 @@ func (s *labelsStep) Update(msg tea.Msg) (Step, tea.Cmd) {
 		}
 		return s, cmd
 
-	case 1: // Add custom labels loop
+	case 1: // "Add a custom label?" confirm
 		form, cmd := s.form.Update(msg)
 		if f, ok := form.(*huh.Form); ok {
 			s.form = f
 		}
 		if s.form.State == huh.StateCompleted {
 			if s.adding {
-				// They want to add a custom label
+				// They want to add — show name input
+				s.phase = 2
+				s.dupErr = ""
+				s.newLabel = ""
 				s.form = huh.NewForm(
 					huh.NewGroup(
 						huh.NewInput().
@@ -493,22 +499,78 @@ func (s *labelsStep) Update(msg tea.Msg) (Step, tea.Cmd) {
 							Value(&s.newLabel),
 					),
 				).WithShowHelp(true)
-				s.adding = false
 				return s, s.form.Init()
-			}
-			if s.newLabel != "" {
-				// They just entered a custom label name
-				s.selected = append(s.selected, s.newLabel)
-				s.newLabel = ""
-				return s, s.showAddCustom()
 			}
 			// They chose not to add more — done
 			s.finalize()
 		}
 		return s, cmd
+
+	case 2: // Name input
+		form, cmd := s.form.Update(msg)
+		if f, ok := form.(*huh.Form); ok {
+			s.form = f
+		}
+		if s.form.State == huh.StateCompleted {
+			// Check for duplicate
+			if s.isDuplicate(s.newLabel) {
+				s.dupErr = fmt.Sprintf("Label %q already exists", s.newLabel)
+				s.newLabel = ""
+				s.form = huh.NewForm(
+					huh.NewGroup(
+						huh.NewInput().
+							Title("Label name (try a different name)").
+							Value(&s.newLabel),
+					),
+				).WithShowHelp(true)
+				return s, s.form.Init()
+			}
+			// Ask for description
+			s.phase = 3
+			s.dupErr = ""
+			s.newDesc = ""
+			s.form = huh.NewForm(
+				huh.NewGroup(
+					huh.NewInput().
+						Title("Description (helps AI classify)").
+						Value(&s.newDesc),
+				),
+			).WithShowHelp(true)
+			return s, s.form.Init()
+		}
+		return s, cmd
+
+	case 3: // Description input
+		form, cmd := s.form.Update(msg)
+		if f, ok := form.(*huh.Form); ok {
+			s.form = f
+		}
+		if s.form.State == huh.StateCompleted {
+			// Add label with description
+			s.selected = append(s.selected, s.newLabel)
+			desc := s.newDesc
+			if desc == "" {
+				desc = "Custom label"
+			}
+			s.customDescs[s.newLabel] = desc
+			s.newLabel = ""
+			s.newDesc = ""
+			s.phase = 1
+			return s, s.showAddCustom()
+		}
+		return s, cmd
 	}
 
 	return s, nil
+}
+
+func (s *labelsStep) isDuplicate(name string) bool {
+	for _, existing := range s.selected {
+		if existing == name {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *labelsStep) showAddCustom() tea.Cmd {
@@ -536,7 +598,11 @@ func (s *labelsStep) finalize() {
 		if l, ok := defaultMap[name]; ok {
 			labels = append(labels, l)
 		} else {
-			labels = append(labels, config.Label{Name: name, Description: "Custom label"})
+			desc := s.customDescs[name]
+			if desc == "" {
+				desc = "Custom label"
+			}
+			labels = append(labels, config.Label{Name: name, Description: desc})
 		}
 	}
 	s.deps.Cfg.Labels = labels
@@ -545,10 +611,14 @@ func (s *labelsStep) finalize() {
 
 func (s *labelsStep) View() string {
 	selectedInfo := ""
-	if len(s.selected) > 0 && s.phase == 1 {
+	if len(s.selected) > 0 && s.phase >= 1 {
 		selectedInfo = tui.DimStyle.Render(fmt.Sprintf("  Selected: %d labels", len(s.selected))) + "\n\n"
 	}
-	return selectedInfo + s.form.View()
+	errInfo := ""
+	if s.dupErr != "" {
+		errInfo = "  " + tui.ErrorStyle.Render(s.dupErr) + "\n\n"
+	}
+	return selectedInfo + errInfo + s.form.View()
 }
 
 // ──────────────────────────────────────────
@@ -559,15 +629,23 @@ type labelCreateDoneMsg struct {
 	err error
 }
 
+type testQueueDoneMsg struct {
+	count int
+	err   error
+}
+
 type daemonStartDoneMsg struct {
 	err error
 }
 
 type finishStep struct {
-	deps    *Deps
-	spinner SpinnerStep
-	phase   int // 0=creating-labels, 1=starting-daemon, 2=done
-	done    bool
+	deps        *Deps
+	spinner     SpinnerStep
+	form        *huh.Form
+	testConfirm bool
+	testQueued  int
+	phase       int // 0=creating-labels, 1=offer-test, 2=queuing-test, 3=starting-daemon, 4=done
+	done        bool
 }
 
 func newFinishStep(deps *Deps) *finishStep {
@@ -580,6 +658,9 @@ func (s *finishStep) CanGoBack() bool { return s.phase == 0 }
 func (s *finishStep) Done() bool      { return s.done }
 
 func (s *finishStep) HelpKeys() []key.Binding {
+	if s.phase == 1 {
+		return []key.Binding{tui.KeyEnter}
+	}
 	return []key.Binding{tui.KeyQuit}
 }
 
@@ -606,8 +687,27 @@ func (s *finishStep) Update(msg tea.Msg) (Step, tea.Cmd) {
 		// Save config now
 		config.Save(config.DefaultPath(), s.deps.Cfg)
 
-		// Move to start daemon
+		// Offer test run
 		s.phase = 1
+		s.testConfirm = true
+		s.form = huh.NewForm(
+			huh.NewGroup(
+				huh.NewConfirm().
+					Title("Label your 10 most recent emails to test?").
+					Value(&s.testConfirm),
+			),
+		).WithShowHelp(true)
+		return s, s.form.Init()
+
+	case testQueueDoneMsg:
+		if msg.err != nil {
+			s.spinner.err = msg.err
+		} else {
+			s.testQueued = msg.count
+			s.spinner.done = true
+		}
+		// Move to start daemon
+		s.phase = 3
 		s.spinner = newSpinnerStep("Starting background service...")
 		return s, tea.Batch(s.spinner.spinner.Tick, s.startDaemon())
 
@@ -617,6 +717,7 @@ func (s *finishStep) Update(msg tea.Msg) (Step, tea.Cmd) {
 		} else {
 			s.spinner.done = true
 		}
+		s.phase = 4
 		s.done = true
 		return s, nil
 
@@ -625,6 +726,28 @@ func (s *finishStep) Update(msg tea.Msg) (Step, tea.Cmd) {
 			return s, tea.Quit
 		}
 	}
+
+	// Delegate to form if in offer-test phase
+	if s.form != nil && s.phase == 1 {
+		form, cmd := s.form.Update(msg)
+		if f, ok := form.(*huh.Form); ok {
+			s.form = f
+		}
+		if s.form.State == huh.StateCompleted {
+			if s.testConfirm {
+				// Queue 10 recent emails
+				s.phase = 2
+				s.spinner = newSpinnerStep("Queuing recent emails...")
+				return s, tea.Batch(s.spinner.spinner.Tick, s.queueTestEmails())
+			}
+			// Skip test — go straight to daemon
+			s.phase = 3
+			s.spinner = newSpinnerStep("Starting background service...")
+			return s, tea.Batch(s.spinner.spinner.Tick, s.startDaemon())
+		}
+		return s, cmd
+	}
+
 	return s, nil
 }
 
@@ -633,10 +756,21 @@ func (s *finishStep) View() string {
 	case 0:
 		return s.spinner.SpinnerView()
 	case 1:
-		labelDone := "  " + tui.SuccessStyle.Render("✓ Labels created")
-		return labelDone + "\n" + s.spinner.SpinnerView()
+		return "  " + tui.SuccessStyle.Render("✓ Labels created") + "\n\n" + s.form.View()
+	case 2:
+		lines := "  " + tui.SuccessStyle.Render("✓ Labels created")
+		return lines + "\n" + s.spinner.SpinnerView()
+	case 3:
+		lines := "  " + tui.SuccessStyle.Render("✓ Labels created")
+		if s.testQueued > 0 {
+			lines += "\n  " + tui.SuccessStyle.Render(fmt.Sprintf("✓ Queued %d emails for labeling", s.testQueued))
+		}
+		return lines + "\n" + s.spinner.SpinnerView()
 	default:
 		lines := "  " + tui.SuccessStyle.Render("✓ Labels created")
+		if s.testQueued > 0 {
+			lines += "\n  " + tui.SuccessStyle.Render(fmt.Sprintf("✓ Queued %d emails for labeling", s.testQueued))
+		}
 		if s.spinner.done {
 			lines += "\n  " + tui.SuccessStyle.Render("✓ Background service started")
 		} else if s.spinner.err != nil {
@@ -675,6 +809,35 @@ func (s *finishStep) createLabels() tea.Cmd {
 		}
 
 		return labelCreateDoneMsg{}
+	}
+}
+
+func (s *finishStep) queueTestEmails() tea.Cmd {
+	return func() tea.Msg {
+		ts, err := gmailpkg.TokenSource(config.CredentialsPath())
+		if err != nil {
+			return testQueueDoneMsg{err: err}
+		}
+
+		ctx := context.Background()
+		client, err := gmailpkg.NewClient(ctx, ts)
+		if err != nil {
+			return testQueueDoneMsg{err: err}
+		}
+
+		msgs, err := client.ListRecentMessages(ctx, 10)
+		if err != nil {
+			return testQueueDoneMsg{err: err}
+		}
+
+		count := 0
+		for _, m := range msgs {
+			if err := s.deps.Store.InsertMessage(m.ID, m.ThreadID); err != nil {
+				continue
+			}
+			count++
+		}
+		return testQueueDoneMsg{count: count}
 	}
 }
 
