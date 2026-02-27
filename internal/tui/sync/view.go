@@ -3,6 +3,7 @@ package sync
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/spinner"
@@ -23,8 +24,9 @@ const (
 )
 
 type fetchDoneMsg struct {
-	msgs []struct{ ID, ThreadID string }
-	err  error
+	msgs    []struct{ ID, ThreadID string }
+	skipped int
+	err     error
 }
 
 type queueDoneMsg struct {
@@ -35,11 +37,12 @@ type queueDoneMsg struct {
 type SyncView struct {
 	phase    phase
 	lastStr  string
-	estimate int64
+	duration time.Duration
 	client   *gmail.Client
 	store    *db.Store
 	spinner  spinner.Model
 	msgs     []struct{ ID, ThreadID string }
+	skipped  int // already processed count
 	cursor   int // 0 = Yes, 1 = No
 	queued   int
 	err      error
@@ -47,7 +50,7 @@ type SyncView struct {
 	height   int
 }
 
-func New(lastStr string, estimate int64, client *gmail.Client, store *db.Store) *SyncView {
+func New(lastStr string, duration time.Duration, client *gmail.Client, store *db.Store) *SyncView {
 	s := spinner.New()
 	s.Spinner = spinner.Dot
 	s.Style = lipgloss.NewStyle().Foreground(tui.ColorGreen)
@@ -55,7 +58,7 @@ func New(lastStr string, estimate int64, client *gmail.Client, store *db.Store) 
 	return &SyncView{
 		phase:    phaseFetching,
 		lastStr:  lastStr,
-		estimate: estimate,
+		duration: duration,
 		client:   client,
 		store:    store,
 		spinner:  s,
@@ -122,6 +125,7 @@ func (v *SyncView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
 			return v, nil
 		}
 		v.msgs = msg.msgs
+		v.skipped = msg.skipped
 		if len(v.msgs) == 0 {
 			v.phase = phaseDone
 			return v, nil
@@ -155,9 +159,13 @@ func (v *SyncView) View() string {
 		} else {
 			no = "  " + tui.SuccessStyle.Render("● ") + "No"
 		}
-		return fmt.Sprintf("  Found %s emails.\n\n  Queue these for labeling?\n\n%s\n%s",
-			lipgloss.NewStyle().Bold(true).Render(fmt.Sprintf("%d", len(v.msgs))),
-			yes, no,
+		summary := fmt.Sprintf("  Found %s new emails.",
+			lipgloss.NewStyle().Bold(true).Render(fmt.Sprintf("%d", len(v.msgs))))
+		if v.skipped > 0 {
+			summary += tui.DimStyle.Render(fmt.Sprintf(" (%d already processed)", v.skipped))
+		}
+		return fmt.Sprintf("%s\n\n  Queue these for labeling?\n\n%s\n%s",
+			summary, yes, no,
 		)
 
 	case phaseQueuing:
@@ -171,6 +179,9 @@ func (v *SyncView) View() string {
 			return "  " + tui.ErrorStyle.Render("✗ "+v.err.Error())
 		}
 		if len(v.msgs) == 0 {
+			if v.skipped > 0 {
+				return "  " + tui.DimStyle.Render(fmt.Sprintf("No new emails. All %d were already processed.", v.skipped))
+			}
 			return "  " + tui.DimStyle.Render("No emails found in this time range.")
 		}
 		return fmt.Sprintf("  %s %d emails queued\n\n  %s",
@@ -185,8 +196,24 @@ func (v *SyncView) View() string {
 func (v *SyncView) fetchEmails() tea.Cmd {
 	return func() tea.Msg {
 		ctx := context.Background()
-		msgs, err := v.client.ListRecentMessages(ctx, v.estimate)
-		return fetchDoneMsg{msgs: msgs, err: err}
+		afterEpoch := time.Now().Add(-v.duration).Unix()
+		allMsgs, err := v.client.ListMessagesSince(ctx, afterEpoch)
+		if err != nil {
+			return fetchDoneMsg{err: err}
+		}
+
+		// Filter out messages already in the DB
+		var newMsgs []struct{ ID, ThreadID string }
+		skipped := 0
+		for _, m := range allMsgs {
+			if v.store.MessageExists(m.ID) {
+				skipped++
+			} else {
+				newMsgs = append(newMsgs, m)
+			}
+		}
+
+		return fetchDoneMsg{msgs: newMsgs, skipped: skipped, err: nil}
 	}
 }
 

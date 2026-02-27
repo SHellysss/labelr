@@ -126,6 +126,13 @@ func (s *Store) PendingMessages(limit int) ([]Message, error) {
 	return msgs, rows.Err()
 }
 
+// MessageExists returns true if a message with the given ID is already in the DB.
+func (s *Store) MessageExists(id string) bool {
+	var count int
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM messages WHERE id = ?`, id).Scan(&count)
+	return err == nil && count > 0
+}
+
 func (s *Store) GetMessage(id string) (*Message, error) {
 	var m Message
 	err := s.db.QueryRow(

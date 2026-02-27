@@ -54,16 +54,7 @@ func runSync(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("opening database: %w", err)
 	}
 
-	// Estimate: ~50 emails per day
-	estimate := int64(duration.Hours()/24) * 50
-	if estimate < 10 {
-		estimate = 10
-	}
-	if estimate > 500 {
-		estimate = 500
-	}
-
-	view := tuisync.New(lastStr, estimate, client, store)
+	view := tuisync.New(lastStr, duration, client, store)
 	return tui.Run(view)
 }
 
