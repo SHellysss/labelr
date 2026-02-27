@@ -20,7 +20,7 @@ func NewStartCmd() *cobra.Command {
 
 func runStart(cmd *cobra.Command, args []string) error {
 	if _, err := os.Stat(config.DefaultPath()); os.IsNotExist(err) {
-		return fmt.Errorf("no config found — run 'labelr init' first")
+		return fmt.Errorf("no config found — run 'labelr setup' first")
 	}
 
 	mgr := service.Detect()
