@@ -86,14 +86,13 @@ type ReconfigureView struct {
 	modelVal   string
 
 	// Sub-flow: Labels
-	labelPhase  int // 0=multiselect, 1=add-confirm, 2=name, 3=desc
-	labelForm   *huh.Form
-	labelSel    []string
-	labelCustom map[string]string // name -> desc
-	labelName   string
-	labelDesc   string
-	labelAdding bool
-	labelDupErr string
+	labelPhase   int // 0=sub-menu, 1=name, 2=desc, 3=remove-select
+	labelForm    *huh.Form
+	labelAction  string // "add", "remove", "back"
+	labelName    string
+	labelDesc    string
+	labelDupErr  string
+	labelRemSel  []string // selected labels to remove
 
 	// Sub-flow: Poll
 	pollForm *huh.Form
@@ -300,23 +299,23 @@ func (v *ReconfigureView) fetchModelsForCurrent() tea.Cmd {
 func (v *ReconfigureView) startLabelsSubflow() tea.Cmd {
 	v.phase = phaseSubflow
 	v.subflow = subflowLabels
-	v.labelPhase = 0
-	v.labelCustom = make(map[string]string)
 	v.labelDupErr = ""
+	return v.showLabelMenu()
+}
 
-	options := make([]huh.Option[string], len(v.cfg.Labels))
-	v.labelSel = make([]string, len(v.cfg.Labels))
-	for i, l := range v.cfg.Labels {
-		options[i] = huh.NewOption(fmt.Sprintf("%s — %s", l.Name, l.Description), l.Name).Selected(true)
-		v.labelSel[i] = l.Name
-	}
-
+func (v *ReconfigureView) showLabelMenu() tea.Cmd {
+	v.labelPhase = 0
+	v.labelAction = ""
 	v.labelForm = huh.NewForm(
 		huh.NewGroup(
-			huh.NewMultiSelect[string]().
-				Title("Keep which labels? (deselect to remove)").
-				Options(options...).
-				Value(&v.labelSel),
+			huh.NewSelect[string]().
+				Title("Labels").
+				Options(
+					huh.NewOption("Add a new label", "add"),
+					huh.NewOption("Remove labels", "remove"),
+					huh.NewOption("Back to menu", "back"),
+				).
+				Value(&v.labelAction),
 		),
 	).WithShowHelp(true)
 	return v.labelForm.Init()
@@ -712,25 +711,19 @@ func (v *ReconfigureView) validateModel() tea.Cmd {
 
 func (v *ReconfigureView) updateLabels(msg tea.Msg) (tui.View, tea.Cmd) {
 	switch v.labelPhase {
-	case 0: // Multi-select
+	case 0: // Sub-menu: add / remove / back
 		form, cmd := v.labelForm.Update(msg)
 		if f, ok := form.(*huh.Form); ok {
 			v.labelForm = f
 		}
 		if v.labelForm.State == huh.StateCompleted {
-			v.labelPhase = 1
-			return v, v.showLabelAddCustom()
-		}
-		return v, cmd
-
-	case 1: // "Add a custom label?" confirm
-		form, cmd := v.labelForm.Update(msg)
-		if f, ok := form.(*huh.Form); ok {
-			v.labelForm = f
-		}
-		if v.labelForm.State == huh.StateCompleted {
-			if v.labelAdding {
-				v.labelPhase = 2
+			switch v.labelAction {
+			case "back":
+				v.phase = phaseMenu
+				v.buildMenu()
+				return v, v.menuForm.Init()
+			case "add":
+				v.labelPhase = 1
 				v.labelDupErr = ""
 				v.labelName = ""
 				v.labelForm = huh.NewForm(
@@ -741,18 +734,40 @@ func (v *ReconfigureView) updateLabels(msg tea.Msg) (tui.View, tea.Cmd) {
 					),
 				).WithShowHelp(true)
 				return v, v.labelForm.Init()
+			case "remove":
+				if len(v.cfg.Labels) == 0 {
+					// Nothing to remove — go back to label menu
+					return v, v.showLabelMenu()
+				}
+				v.labelPhase = 3
+				v.labelRemSel = nil
+				options := make([]huh.Option[string], len(v.cfg.Labels))
+				for i, l := range v.cfg.Labels {
+					options[i] = huh.NewOption(fmt.Sprintf("%s — %s", l.Name, l.Description), l.Name)
+				}
+				v.labelForm = huh.NewForm(
+					huh.NewGroup(
+						huh.NewMultiSelect[string]().
+							Title("Select labels to remove").
+							Options(options...).
+							Value(&v.labelRemSel),
+					),
+				).WithShowHelp(true)
+				return v, v.labelForm.Init()
 			}
-			// Done adding — apply label changes
-			return v, v.applyLabelChanges()
 		}
 		return v, cmd
 
-	case 2: // Name input
+	case 1: // Name input
 		form, cmd := v.labelForm.Update(msg)
 		if f, ok := form.(*huh.Form); ok {
 			v.labelForm = f
 		}
 		if v.labelForm.State == huh.StateCompleted {
+			if v.labelName == "" {
+				// Empty name — go back to label menu
+				return v, v.showLabelMenu()
+			}
 			// Check duplicate
 			if v.isLabelDuplicate(v.labelName) {
 				v.labelDupErr = fmt.Sprintf("Label %q already exists", v.labelName)
@@ -766,7 +781,7 @@ func (v *ReconfigureView) updateLabels(msg tea.Msg) (tui.View, tea.Cmd) {
 				).WithShowHelp(true)
 				return v, v.labelForm.Init()
 			}
-			v.labelPhase = 3
+			v.labelPhase = 2
 			v.labelDupErr = ""
 			v.labelDesc = ""
 			v.labelForm = huh.NewForm(
@@ -780,144 +795,125 @@ func (v *ReconfigureView) updateLabels(msg tea.Msg) (tui.View, tea.Cmd) {
 		}
 		return v, cmd
 
-	case 3: // Desc input
+	case 2: // Desc input — then save
 		form, cmd := v.labelForm.Update(msg)
 		if f, ok := form.(*huh.Form); ok {
 			v.labelForm = f
 		}
 		if v.labelForm.State == huh.StateCompleted {
-			v.labelSel = append(v.labelSel, v.labelName)
 			desc := v.labelDesc
 			if desc == "" {
 				desc = "Custom label"
 			}
-			v.labelCustom[v.labelName] = desc
-			v.labelName = ""
-			v.labelDesc = ""
-			v.labelPhase = 1
-			return v, v.showLabelAddCustom()
+			newLabel := config.Label{Name: v.labelName, Description: desc}
+			v.cfg.Labels = append(v.cfg.Labels, newLabel)
+			added := []config.Label{newLabel}
+			return v, v.startSave(
+				fmt.Sprintf("Added label: %s", v.labelName),
+				v.syncAddedLabels(added),
+			)
+		}
+		return v, cmd
+
+	case 3: // Remove multi-select
+		form, cmd := v.labelForm.Update(msg)
+		if f, ok := form.(*huh.Form); ok {
+			v.labelForm = f
+		}
+		if v.labelForm.State == huh.StateCompleted {
+			if len(v.labelRemSel) == 0 {
+				// Nothing selected — go back to label menu
+				return v, v.showLabelMenu()
+			}
+			removeSet := make(map[string]bool)
+			for _, n := range v.labelRemSel {
+				removeSet[n] = true
+			}
+			var removed []config.Label
+			var kept []config.Label
+			for _, l := range v.cfg.Labels {
+				if removeSet[l.Name] {
+					removed = append(removed, l)
+				} else {
+					kept = append(kept, l)
+				}
+			}
+			v.cfg.Labels = kept
+			return v, v.startSave(
+				fmt.Sprintf("Removed %d label(s)", len(removed)),
+				v.syncRemovedLabels(removed),
+			)
 		}
 		return v, cmd
 	}
 	return v, nil
 }
 
-func (v *ReconfigureView) showLabelAddCustom() tea.Cmd {
-	v.labelAdding = true
-	v.labelForm = huh.NewForm(
-		huh.NewGroup(
-			huh.NewConfirm().
-				Title("Add a custom label?").
-				Value(&v.labelAdding),
-		),
-	).WithShowHelp(true)
-	return v.labelForm.Init()
-}
-
 func (v *ReconfigureView) isLabelDuplicate(name string) bool {
-	for _, n := range v.labelSel {
-		if n == name {
+	for _, l := range v.cfg.Labels {
+		if l.Name == name {
 			return true
 		}
 	}
 	return false
 }
 
-func (v *ReconfigureView) applyLabelChanges() tea.Cmd {
-	// Build new labels list
-	oldLabelMap := make(map[string]config.Label)
-	for _, l := range v.cfg.Labels {
-		oldLabelMap[l.Name] = l
-	}
-
-	var newLabels []config.Label
-	for _, name := range v.labelSel {
-		if l, ok := oldLabelMap[name]; ok {
-			newLabels = append(newLabels, l)
-		} else {
-			desc := v.labelCustom[name]
-			if desc == "" {
-				desc = "Custom label"
+func (v *ReconfigureView) syncAddedLabels(added []config.Label) func() tea.Msg {
+	return func() tea.Msg {
+		ts, err := gmailpkg.TokenSource(config.CredentialsPath())
+		if err != nil {
+			return labelSyncDoneMsg{err: err}
+		}
+		client, err := gmailpkg.NewClient(context.Background(), ts)
+		if err != nil {
+			return labelSyncDoneMsg{err: err}
+		}
+		store, err := db.Open(config.DBPath())
+		if err != nil {
+			return labelSyncDoneMsg{err: err}
+		}
+		defer store.Close()
+		customIdx := 0
+		for _, l := range added {
+			bg, tx := gmailpkg.ColorForLabel(l.Name, customIdx)
+			if !gmailpkg.IsDefaultLabel(l.Name) {
+				customIdx++
 			}
-			newLabels = append(newLabels, config.Label{Name: name, Description: desc})
-		}
-	}
-
-	// Diff: removed and added
-	oldSet := make(map[string]bool)
-	for _, l := range v.cfg.Labels {
-		oldSet[l.Name] = true
-	}
-	newSet := make(map[string]bool)
-	for _, l := range newLabels {
-		newSet[l.Name] = true
-	}
-
-	var removed []config.Label
-	for _, l := range v.cfg.Labels {
-		if !newSet[l.Name] {
-			removed = append(removed, l)
-		}
-	}
-	var added []config.Label
-	for _, l := range newLabels {
-		if !oldSet[l.Name] {
-			added = append(added, l)
-		}
-	}
-
-	v.cfg.Labels = newLabels
-
-	statusMsg := fmt.Sprintf("%d labels configured", len(newLabels))
-	return v.startSave(statusMsg, func() tea.Msg {
-		// Delete removed labels from Gmail
-		if len(removed) > 0 {
-			ts, err := gmailpkg.TokenSource(config.CredentialsPath())
-			if err == nil {
-				client, err := gmailpkg.NewClient(context.Background(), ts)
-				if err == nil {
-					store, err := db.Open(config.DBPath())
-					if err == nil {
-						for _, l := range removed {
-							gmailID, err := store.GetLabelMapping(l.Name)
-							if err != nil {
-								continue
-							}
-							client.DeleteLabel(context.Background(), gmailID)
-							store.DeleteLabelMapping(l.Name)
-						}
-						store.Close()
-					}
-				}
+			gmailID, err := client.CreateLabel(context.Background(), l.Name, bg, tx)
+			if err != nil {
+				continue
 			}
-		}
-		// Create added labels in Gmail
-		if len(added) > 0 {
-			ts, err := gmailpkg.TokenSource(config.CredentialsPath())
-			if err == nil {
-				client, err := gmailpkg.NewClient(context.Background(), ts)
-				if err == nil {
-					store, err := db.Open(config.DBPath())
-					if err == nil {
-						customIdx := 0
-						for _, l := range added {
-							bg, tx := gmailpkg.ColorForLabel(l.Name, customIdx)
-							if !gmailpkg.IsDefaultLabel(l.Name) {
-								customIdx++
-							}
-							gmailID, err := client.CreateLabel(context.Background(), l.Name, bg, tx)
-							if err != nil {
-								continue
-							}
-							store.SetLabelMappingWithColor(l.Name, gmailID, bg, tx)
-						}
-						store.Close()
-					}
-				}
-			}
+			store.SetLabelMappingWithColor(l.Name, gmailID, bg, tx)
 		}
 		return labelSyncDoneMsg{}
-	})
+	}
+}
+
+func (v *ReconfigureView) syncRemovedLabels(removed []config.Label) func() tea.Msg {
+	return func() tea.Msg {
+		ts, err := gmailpkg.TokenSource(config.CredentialsPath())
+		if err != nil {
+			return labelSyncDoneMsg{err: err}
+		}
+		client, err := gmailpkg.NewClient(context.Background(), ts)
+		if err != nil {
+			return labelSyncDoneMsg{err: err}
+		}
+		store, err := db.Open(config.DBPath())
+		if err != nil {
+			return labelSyncDoneMsg{err: err}
+		}
+		defer store.Close()
+		for _, l := range removed {
+			gmailID, err := store.GetLabelMapping(l.Name)
+			if err != nil {
+				continue
+			}
+			client.DeleteLabel(context.Background(), gmailID)
+			store.DeleteLabelMapping(l.Name)
+		}
+		return labelSyncDoneMsg{}
+	}
 }
 
 // ─── Poll update ─────────────────────────────────
@@ -1085,15 +1081,20 @@ func (v *ReconfigureView) renderSubflow() string {
 		}
 
 	case subflowLabels:
-		selectedInfo := ""
-		if len(v.labelSel) > 0 && v.labelPhase >= 1 {
-			selectedInfo = tui.DimStyle.Render(fmt.Sprintf("  Selected: %d labels", len(v.labelSel))) + "\n\n"
+		// Show current labels list above the form
+		var labelList string
+		if len(v.cfg.Labels) > 0 && v.labelPhase == 0 {
+			labelList = tui.DimStyle.Render(fmt.Sprintf("  Current: %d labels", len(v.cfg.Labels))) + "\n"
+			for _, l := range v.cfg.Labels {
+				labelList += tui.DimStyle.Render(fmt.Sprintf("    · %s", l.Name)) + "\n"
+			}
+			labelList += "\n"
 		}
 		errInfo := ""
 		if v.labelDupErr != "" {
 			errInfo = "  " + tui.ErrorStyle.Render(v.labelDupErr) + "\n\n"
 		}
-		return selectedInfo + errInfo + v.labelForm.View()
+		return labelList + errInfo + v.labelForm.View()
 
 	case subflowPoll:
 		errInfo := ""
