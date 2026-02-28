@@ -20,6 +20,8 @@ labelr setup
 
 The wizard connects your Gmail, picks an AI provider, sets up labels, and starts the background service. That's it.
 
+> **Note:** During Gmail sign-in, you'll see an "unverified app" warning (Google verification is in progress). Click **Advanced** → **Go to labelr (unsafe)** to continue. This is safe — labelr runs entirely on your machine and the source code is fully open.
+
 Check service health and queue stats anytime:
 
 ```bash
