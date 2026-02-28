@@ -7,12 +7,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/huh"
-	"github.com/charmbracelet/huh/spinner"
-	"github.com/pankajbeniwal/labelr/internal/config"
-	"github.com/pankajbeniwal/labelr/internal/db"
-	gmailpkg "github.com/pankajbeniwal/labelr/internal/gmail"
-	"github.com/pankajbeniwal/labelr/internal/ui"
+	"github.com/Pankaj3112/labelr/internal/config"
+	"github.com/Pankaj3112/labelr/internal/db"
+	gmailpkg "github.com/Pankaj3112/labelr/internal/gmail"
+	"github.com/Pankaj3112/labelr/internal/tui"
+	tuisync "github.com/Pankaj3112/labelr/internal/tui/sync"
 	"github.com/spf13/cobra"
 )
 
@@ -54,51 +53,9 @@ func runSync(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("opening database: %w", err)
 	}
-	defer store.Close()
 
-	// Estimate: ~50 emails per day
-	estimate := int64(duration.Hours()/24) * 50
-	if estimate < 10 {
-		estimate = 10
-	}
-	if estimate > 500 {
-		estimate = 500
-	}
-
-	var msgs []struct{ ID, ThreadID string }
-	var fetchErr error
-	err = spinner.New().
-		Title(fmt.Sprintf("Fetching emails from the last %s...", lastStr)).
-		Action(func() {
-			msgs, fetchErr = client.ListRecentMessages(ctx, estimate)
-		}).
-		Run()
-	if err != nil {
-		return err
-	}
-	if fetchErr != nil {
-		return fmt.Errorf("fetching messages: %w", fetchErr)
-	}
-
-	fmt.Printf("  Found %d emails.\n", len(msgs))
-
-	var proceed bool
-	huh.NewConfirm().
-		Title(fmt.Sprintf("Queue %d emails for labeling?", len(msgs))).
-		Value(&proceed).
-		Run()
-
-	if !proceed {
-		ui.Dim("Cancelled.")
-		return nil
-	}
-
-	for _, m := range msgs {
-		store.InsertMessage(m.ID, m.ThreadID)
-	}
-
-	ui.Success(fmt.Sprintf("Queued %d emails", len(msgs)))
-	return nil
+	view := tuisync.New(lastStr, duration, client, store)
+	return tui.Run(view)
 }
 
 func parseDuration(s string) (time.Duration, error) {
@@ -117,7 +74,9 @@ func parseDuration(s string) (time.Duration, error) {
 		return time.Duration(num) * 24 * time.Hour, nil
 	case 'h':
 		return time.Duration(num) * time.Hour, nil
+	case 'm':
+		return time.Duration(num) * time.Minute, nil
 	default:
-		return 0, fmt.Errorf("unknown unit %c (use d or h)", unit)
+		return 0, fmt.Errorf("unknown unit %c (use d, h, or m)", unit)
 	}
 }

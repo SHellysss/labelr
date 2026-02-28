@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/pankajbeniwal/labelr/internal/db"
+	"github.com/Pankaj3112/labelr/internal/db"
 )
 
 // mockGmailPoller implements the GmailPoller interface for testing

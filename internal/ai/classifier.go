@@ -8,7 +8,7 @@ import (
 
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
-	"github.com/pankajbeniwal/labelr/internal/config"
+	"github.com/Pankaj3112/labelr/internal/config"
 )
 
 type Classifier struct {

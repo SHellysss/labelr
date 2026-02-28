@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	_ "modernc.org/sqlite"
 )
@@ -29,6 +30,13 @@ type Stats struct {
 	Pending int
 	Labeled int
 	Failed  int
+}
+
+type ActivityEntry struct {
+	Subject     string
+	Label       string
+	Status      string // "labeled" or "failed"
+	ProcessedAt string
 }
 
 func Open(path string) (*Store, error) {
@@ -87,14 +95,31 @@ func (s *Store) migrate() error {
 	}
 
 	// Add color columns (safe to run on existing DBs — ignores "duplicate column" errors)
-	s.migrateAddColumn("label_mappings", "bg_color", "TEXT NOT NULL DEFAULT ''")
-	s.migrateAddColumn("label_mappings", "text_color", "TEXT NOT NULL DEFAULT ''")
+	if err := s.migrateAddColumn("label_mappings", "bg_color", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return fmt.Errorf("adding bg_color column: %w", err)
+	}
+	if err := s.migrateAddColumn("label_mappings", "text_color", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return fmt.Errorf("adding text_color column: %w", err)
+	}
+
+	// Add subject column to messages for activity feed
+	if err := s.migrateAddColumn("messages", "subject", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return fmt.Errorf("adding subject column: %w", err)
+	}
 
 	return nil
 }
 
-func (s *Store) migrateAddColumn(table, column, colDef string) {
-	_, _ = s.db.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", table, column, colDef))
+func (s *Store) migrateAddColumn(table, column, colDef string) error {
+	_, err := s.db.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", table, column, colDef))
+	if err != nil {
+		// Ignore "duplicate column" errors (column already exists)
+		if strings.Contains(err.Error(), "duplicate column") {
+			return nil
+		}
+		return err
+	}
+	return nil
 }
 
 func (s *Store) InsertMessage(id, threadID string) error {
@@ -126,6 +151,13 @@ func (s *Store) PendingMessages(limit int) ([]Message, error) {
 	return msgs, rows.Err()
 }
 
+// MessageExists returns true if a message with the given ID is already in the DB.
+func (s *Store) MessageExists(id string) bool {
+	var count int
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM messages WHERE id = ?`, id).Scan(&count)
+	return err == nil && count > 0
+}
+
 func (s *Store) GetMessage(id string) (*Message, error) {
 	var m Message
 	err := s.db.QueryRow(
@@ -143,10 +175,10 @@ func (s *Store) MarkProcessing(id string) error {
 	return err
 }
 
-func (s *Store) MarkLabeled(id, label string) error {
+func (s *Store) MarkLabeled(id, label, subject string) error {
 	_, err := s.db.Exec(
-		`UPDATE messages SET status = 'labeled', label = ?, processed_at = datetime('now') WHERE id = ?`,
-		label, id,
+		`UPDATE messages SET status = 'labeled', label = ?, subject = ?, processed_at = datetime('now') WHERE id = ?`,
+		label, subject, id,
 	)
 	return err
 }
@@ -242,4 +274,29 @@ func (s *Store) Stats() (*Stats, error) {
 		COALESCE(SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END), 0)
 		FROM messages`).Scan(&stats.Pending, &stats.Labeled, &stats.Failed)
 	return &stats, err
+}
+
+// RecentActivity returns the most recently processed messages (labeled or failed).
+func (s *Store) RecentActivity(limit int) ([]ActivityEntry, error) {
+	rows, err := s.db.Query(
+		`SELECT subject, COALESCE(label, ''), status, processed_at
+		 FROM messages
+		 WHERE status IN ('labeled', 'failed') AND processed_at IS NOT NULL
+		 ORDER BY processed_at DESC
+		 LIMIT ?`, limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var entries []ActivityEntry
+	for rows.Next() {
+		var e ActivityEntry
+		if err := rows.Scan(&e.Subject, &e.Label, &e.Status, &e.ProcessedAt); err != nil {
+			return nil, err
+		}
+		entries = append(entries, e)
+	}
+	return entries, rows.Err()
 }

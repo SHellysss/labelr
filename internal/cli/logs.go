@@ -3,9 +3,10 @@ package cli
 import (
 	"fmt"
 	"os"
-	"os/exec"
 
-	"github.com/pankajbeniwal/labelr/internal/config"
+	"github.com/Pankaj3112/labelr/internal/config"
+	"github.com/Pankaj3112/labelr/internal/tui"
+	"github.com/Pankaj3112/labelr/internal/tui/logs"
 	"github.com/spf13/cobra"
 )
 
@@ -23,8 +24,6 @@ func runLogs(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("no log file found at %s", logPath)
 	}
 
-	tailCmd := exec.Command("tail", "-f", logPath)
-	tailCmd.Stdout = os.Stdout
-	tailCmd.Stderr = os.Stderr
-	return tailCmd.Run()
+	viewer := logs.NewViewer(logPath)
+	return tui.Run(viewer)
 }

@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/pankajbeniwal/labelr/internal/config"
-	"github.com/pankajbeniwal/labelr/internal/service"
-	"github.com/pankajbeniwal/labelr/internal/ui"
+	"github.com/Pankaj3112/labelr/internal/config"
+	"github.com/Pankaj3112/labelr/internal/service"
+	"github.com/Pankaj3112/labelr/internal/ui"
 	"github.com/spf13/cobra"
 )
 
@@ -28,7 +28,15 @@ func runStart(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("unsupported operating system")
 	}
 
+	binaryPath, _ := os.Executable()
+	if binaryPath == "" {
+		binaryPath = "labelr"
+	}
+
 	ui.Info("Starting labelr daemon...")
+	if err := mgr.Install(binaryPath); err != nil {
+		return fmt.Errorf("installing service: %w", err)
+	}
 	if err := mgr.Start(); err != nil {
 		return fmt.Errorf("starting service: %w", err)
 	}

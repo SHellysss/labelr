@@ -6,12 +6,12 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/pankajbeniwal/labelr/internal/ai"
-	"github.com/pankajbeniwal/labelr/internal/config"
-	"github.com/pankajbeniwal/labelr/internal/daemon"
-	"github.com/pankajbeniwal/labelr/internal/db"
-	gmailpkg "github.com/pankajbeniwal/labelr/internal/gmail"
-	applog "github.com/pankajbeniwal/labelr/internal/log"
+	"github.com/Pankaj3112/labelr/internal/ai"
+	"github.com/Pankaj3112/labelr/internal/config"
+	"github.com/Pankaj3112/labelr/internal/daemon"
+	"github.com/Pankaj3112/labelr/internal/db"
+	gmailpkg "github.com/Pankaj3112/labelr/internal/gmail"
+	applog "github.com/Pankaj3112/labelr/internal/log"
 	"github.com/spf13/cobra"
 )
 

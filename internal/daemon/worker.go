@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/pankajbeniwal/labelr/internal/db"
-	"github.com/pankajbeniwal/labelr/internal/gmail"
-	applog "github.com/pankajbeniwal/labelr/internal/log"
+	"github.com/Pankaj3112/labelr/internal/db"
+	"github.com/Pankaj3112/labelr/internal/gmail"
+	applog "github.com/Pankaj3112/labelr/internal/log"
 )
 
 type EmailClassifier interface {
@@ -83,8 +83,8 @@ func (w *Worker) ProcessOne(ctx context.Context) (bool, error) {
 		return true, nil
 	}
 
-	w.store.MarkLabeled(msg.ID, label)
-	w.logInfo("labeled %s as %q", msg.ID, label)
+	w.store.MarkLabeled(msg.ID, label, email.Subject)
+	w.logInfo("labeled %q as %q", truncateSubject(email.Subject, 30), label)
 	return true, nil
 }
 
@@ -98,4 +98,12 @@ func (w *Worker) logError(format string, args ...any) {
 	if w.logger != nil {
 		w.logger.Error(format, args...)
 	}
+}
+
+func truncateSubject(s string, max int) string {
+	runes := []rune(s)
+	if len(runes) <= max {
+		return s
+	}
+	return string(runes[:max-1]) + "…"
 }

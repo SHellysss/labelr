@@ -5,9 +5,10 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"time"
 
-	"github.com/pankajbeniwal/labelr/internal/config"
+	"github.com/Pankaj3112/labelr/internal/config"
 )
 
 type Provider struct {
@@ -37,6 +38,29 @@ var providers = map[string]Provider{
 		BaseURL: "https://api.groq.com/openai/v1",
 		EnvKey:  "GROQ_API_KEY",
 	},
+	"custom": {
+		Name:    "Custom (OpenAI-compatible)",
+		BaseURL: "", // user provides at setup time
+		EnvKey:  "",
+	},
+}
+
+// ProviderBaseURL returns the API base URL for a provider.
+func ProviderBaseURL(provider string) string {
+	p, ok := providers[provider]
+	if !ok {
+		return ""
+	}
+	return p.BaseURL
+}
+
+// EnvKeyForProvider returns the environment variable name for a provider's API key.
+func EnvKeyForProvider(provider string) string {
+	p, ok := providers[provider]
+	if !ok {
+		return ""
+	}
+	return p.EnvKey
 }
 
 // modelsDevKey maps our provider names to models.dev JSON keys.
@@ -62,16 +86,8 @@ func ListProviders() []Provider {
 	return result
 }
 
-func ProviderNames() []string {
-	names := make([]string, 0, len(providers))
-	for name := range providers {
-		names = append(names, name)
-	}
-	return names
-}
-
 // providerOrder is the fixed display order for provider selection.
-var providerOrder = []string{"openai", "deepseek", "groq", "ollama"}
+var providerOrder = []string{"openai", "deepseek", "groq", "ollama", "custom"}
 
 // ProviderNamesOrdered returns provider names in a fixed, deterministic order.
 func ProviderNamesOrdered() []string {
@@ -180,11 +196,12 @@ func writeModelsCache(path string, cache *modelsCacheEntry) {
 	if err != nil {
 		return
 	}
+	_ = os.MkdirAll(filepath.Dir(path), 0700)
 	_ = os.WriteFile(path, data, 0600)
 }
 
-// OllamaModel represents an Ollama model from /api/tags.
-type OllamaModel struct {
+// ollamaModel represents an Ollama model from /api/tags.
+type ollamaModel struct {
 	Name string `json:"name"`
 }
 
@@ -193,7 +210,7 @@ var ollamaBaseURL = "http://localhost:11434"
 
 // ollamaTagsResponse represents the /api/tags response (all pulled models).
 type ollamaTagsResponse struct {
-	Models []OllamaModel `json:"models"`
+	Models []ollamaModel `json:"models"`
 }
 
 // FetchOllamaModels queries Ollama /api/tags for all pulled models.

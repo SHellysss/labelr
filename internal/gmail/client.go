@@ -155,7 +155,7 @@ func (c *Client) GetProfile(ctx context.Context) (email string, historyID uint64
 	return profile.EmailAddress, profile.HistoryId, nil
 }
 
-// ListRecentMessages returns recent message IDs from the inbox.
+// ListRecentMessages returns up to maxResults recent message IDs from the inbox.
 func (c *Client) ListRecentMessages(ctx context.Context, maxResults int64) ([]struct{ ID, ThreadID string }, error) {
 	resp, err := c.svc.Users.Messages.List("me").
 		LabelIds("INBOX").
@@ -170,6 +170,41 @@ func (c *Client) ListRecentMessages(ctx context.Context, maxResults int64) ([]st
 		msgs = append(msgs, struct{ ID, ThreadID string }{ID: m.Id, ThreadID: m.ThreadId})
 	}
 	return msgs, nil
+}
+
+// ListMessagesSince returns all inbox message IDs received after the given epoch timestamp.
+// It paginates through all results.
+func (c *Client) ListMessagesSince(ctx context.Context, afterEpoch int64) ([]struct{ ID, ThreadID string }, error) {
+	query := fmt.Sprintf("after:%d", afterEpoch)
+	var all []struct{ ID, ThreadID string }
+	pageToken := ""
+
+	for {
+		req := c.svc.Users.Messages.List("me").
+			LabelIds("INBOX").
+			Q(query).
+			MaxResults(500).
+			Context(ctx)
+		if pageToken != "" {
+			req = req.PageToken(pageToken)
+		}
+
+		resp, err := req.Do()
+		if err != nil {
+			return nil, err
+		}
+
+		for _, m := range resp.Messages {
+			all = append(all, struct{ ID, ThreadID string }{ID: m.Id, ThreadID: m.ThreadId})
+		}
+
+		if resp.NextPageToken == "" {
+			break
+		}
+		pageToken = resp.NextPageToken
+	}
+
+	return all, nil
 }
 
 func extractEmailHeaders(headers []MessageHeader) *EmailData {

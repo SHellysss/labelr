@@ -3,7 +3,7 @@ package ai
 import (
 	"testing"
 
-	"github.com/pankajbeniwal/labelr/internal/config"
+	"github.com/Pankaj3112/labelr/internal/config"
 )
 
 func TestBuildPrompt(t *testing.T) {

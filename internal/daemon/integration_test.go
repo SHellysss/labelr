@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/pankajbeniwal/labelr/internal/db"
-	"github.com/pankajbeniwal/labelr/internal/gmail"
+	"github.com/Pankaj3112/labelr/internal/db"
+	"github.com/Pankaj3112/labelr/internal/gmail"
 )
 
 func TestFullPipeline(t *testing.T) {

@@ -5,9 +5,9 @@ import (
 	"os"
 
 	"github.com/charmbracelet/huh"
-	"github.com/pankajbeniwal/labelr/internal/config"
-	"github.com/pankajbeniwal/labelr/internal/service"
-	"github.com/pankajbeniwal/labelr/internal/ui"
+	"github.com/Pankaj3112/labelr/internal/config"
+	"github.com/Pankaj3112/labelr/internal/service"
+	"github.com/Pankaj3112/labelr/internal/ui"
 	"github.com/spf13/cobra"
 )
 
@@ -36,10 +36,16 @@ func runUninstall(cmd *cobra.Command, args []string) error {
 
 	// Ask about data
 	var keepData bool
-	huh.NewConfirm().
+	err := huh.NewConfirm().
 		Title("Keep your data (~/.labelr/)?").
 		Value(&keepData).
 		Run()
+	if err != nil {
+		fmt.Println()
+		ui.Dim("Cancelled.")
+		fmt.Println()
+		return nil
+	}
 
 	if keepData {
 		ui.Info(fmt.Sprintf("Data kept at %s", config.Dir()))

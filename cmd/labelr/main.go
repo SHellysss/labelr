@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/pankajbeniwal/labelr/internal/cli"
+	"github.com/Pankaj3112/labelr/internal/cli"
 	"github.com/spf13/cobra"
 )
 

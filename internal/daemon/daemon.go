@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/pankajbeniwal/labelr/internal/db"
-	applog "github.com/pankajbeniwal/labelr/internal/log"
+	"github.com/Pankaj3112/labelr/internal/db"
+	applog "github.com/Pankaj3112/labelr/internal/log"
 )
 
 type Daemon struct {
