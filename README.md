@@ -2,6 +2,8 @@
 
 Automatically organize your Gmail inbox using AI. labelr runs in the background, reads new emails, and applies the right label.
 
+![labelr demo](assets/demo.gif)
+
 ## Install
 
 ```bash
