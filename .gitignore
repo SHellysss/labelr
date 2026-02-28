@@ -7,3 +7,4 @@ bin/
 .worktrees/
 labelr
 dist/
+docs/
