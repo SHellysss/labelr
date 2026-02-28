@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"time"
 
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
@@ -35,9 +36,21 @@ func oauthConfig(redirectURL string) *oauth2.Config {
 	}
 }
 
-// Authenticate runs the full OAuth flow: starts local server, opens browser,
-// waits for callback, exchanges code for token, and saves it.
-func Authenticate(credentialsPath string) (*oauth2.Token, error) {
+// AuthSession holds the state for an in-progress OAuth flow.
+type AuthSession struct {
+	AuthURL string // URL the user should visit
+	wait    func() (*oauth2.Token, error)
+}
+
+// Wait blocks until the user completes (or abandons) the OAuth flow.
+func (s *AuthSession) Wait() (*oauth2.Token, error) {
+	return s.wait()
+}
+
+// StartAuth begins the OAuth flow: starts a local callback server and opens
+// the browser. Returns an AuthSession immediately so the caller can display
+// the auth URL. Call session.Wait() to block until completion.
+func StartAuth(credentialsPath string) (*AuthSession, error) {
 	// Find available port
 	listener, err := net.Listen("tcp", "localhost:0")
 	if err != nil {
@@ -77,30 +90,38 @@ func Authenticate(credentialsPath string) (*oauth2.Token, error) {
 	authURL := cfg.AuthCodeURL("state", oauth2.AccessTypeOffline, oauth2.SetAuthURLParam("prompt", "consent"))
 	openBrowser(authURL)
 
-	fmt.Printf("If the browser didn't open, visit this URL:\n%s\n\n", authURL)
+	session := &AuthSession{
+		AuthURL: authURL,
+		wait: func() (*oauth2.Token, error) {
+			// Wait for code, error, or timeout
+			var code string
+			select {
+			case code = <-codeCh:
+			case err := <-errCh:
+				server.Close()
+				return nil, err
+			case <-time.After(2 * time.Minute):
+				server.Close()
+				return nil, fmt.Errorf("authentication timed out — no response from browser")
+			}
 
-	// Wait for code or error
-	var code string
-	select {
-	case code = <-codeCh:
-	case err := <-errCh:
-		server.Close()
-		return nil, err
+			server.Close()
+
+			// Exchange code for token
+			token, err := cfg.Exchange(context.Background(), code)
+			if err != nil {
+				return nil, fmt.Errorf("exchanging code: %w", err)
+			}
+
+			if err := saveToken(credentialsPath, token); err != nil {
+				return nil, fmt.Errorf("saving token: %w", err)
+			}
+
+			return token, nil
+		},
 	}
 
-	server.Close()
-
-	// Exchange code for token
-	token, err := cfg.Exchange(context.Background(), code)
-	if err != nil {
-		return nil, fmt.Errorf("exchanging code: %w", err)
-	}
-
-	if err := saveToken(credentialsPath, token); err != nil {
-		return nil, fmt.Errorf("saving token: %w", err)
-	}
-
-	return token, nil
+	return session, nil
 }
 
 // TokenSource returns an oauth2.TokenSource from saved credentials.
@@ -175,7 +196,7 @@ func loadToken(path string) (*oauth2.Token, error) {
 	return &token, nil
 }
 
-func openBrowser(url string) {
+func openBrowser(url string) error {
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "darwin":
@@ -185,7 +206,8 @@ func openBrowser(url string) {
 	case "windows":
 		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
 	}
-	if cmd != nil {
-		cmd.Start()
+	if cmd == nil {
+		return fmt.Errorf("unsupported platform")
 	}
+	return cmd.Start()
 }

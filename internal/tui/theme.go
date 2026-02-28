@@ -1,7 +1,12 @@
 // internal/tui/theme.go
 package tui
 
-import "github.com/charmbracelet/lipgloss"
+import (
+	"fmt"
+	"runtime"
+
+	"github.com/charmbracelet/lipgloss"
+)
 
 // Colors — same palette as ui/style.go for consistency.
 var (
@@ -45,6 +50,20 @@ var (
 // Header: 1 line (● labelr cmd) + 1 blank line = 2
 // Footer: 1 blank line + 1 help line = 2
 const ChromeHeight = 4
+
+// ClickModifier returns the platform-specific modifier key for clicking links.
+func ClickModifier() string {
+	if runtime.GOOS == "darwin" {
+		return "cmd"
+	}
+	return "ctrl"
+}
+
+// Hyperlink renders an OSC 8 clickable hyperlink for terminals that support it.
+// Falls back to displaying the label as plain text in unsupported terminals.
+func Hyperlink(url, label string) string {
+	return fmt.Sprintf("\033]8;;%s\033\\%s\033]8;;\033\\", url, DimStyle.Render(label))
+}
 
 // RenderHeader returns the branded header line for a command.
 func RenderHeader(title string, width int) string {

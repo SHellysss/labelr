@@ -8,6 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/pankajbeniwal/labelr/internal/ai"
 	"github.com/pankajbeniwal/labelr/internal/config"
 	"github.com/pankajbeniwal/labelr/internal/db"
 	"github.com/pankajbeniwal/labelr/internal/service"
@@ -228,4 +229,16 @@ func (s *SpinnerStep) SpinnerView() string {
 		return "  " + tui.SuccessStyle.Render("✓ "+s.title)
 	}
 	return fmt.Sprintf("  %s %s", s.spinner.View(), s.title)
+}
+
+// fetchModelsCmd returns a tea.Cmd that fetches available models for the given provider.
+func fetchModelsCmd(provider string) tea.Cmd {
+	return func() tea.Msg {
+		if provider == "ollama" {
+			models, err := ai.FetchOllamaModels()
+			return modelsFetchedMsg{models: models, err: err}
+		}
+		models, err := ai.FetchModelsForProvider(provider)
+		return modelsFetchedMsg{models: models, err: err}
+	}
 }

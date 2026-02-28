@@ -20,6 +20,10 @@ import (
 // Step 1: Gmail OAuth
 // ──────────────────────────────────────────
 
+type gmailAuthStartedMsg struct {
+	session *gmailpkg.AuthSession
+}
+
 type gmailDoneMsg struct {
 	email     string
 	historyID uint64
@@ -30,6 +34,7 @@ type gmailStep struct {
 	deps    *Deps
 	spinner SpinnerStep
 	email   string
+	authURL string // shown to user once auth server starts
 	done    bool
 	err     error
 }
@@ -74,6 +79,30 @@ func (s *gmailStep) Update(msg tea.Msg) (Step, tea.Cmd) {
 		var cmd tea.Cmd
 		s.spinner.spinner, cmd = s.spinner.spinner.Update(msg)
 		return s, cmd
+	case gmailAuthStartedMsg:
+		s.authURL = msg.session.AuthURL
+		// Now wait for the user to complete the flow
+		return s, func() tea.Msg {
+			token, err := msg.session.Wait()
+			if err != nil {
+				return gmailDoneMsg{err: fmt.Errorf("authentication failed: %w", err)}
+			}
+			_ = token
+			ts, err := gmailpkg.TokenSource(config.CredentialsPath())
+			if err != nil {
+				return gmailDoneMsg{err: fmt.Errorf("creating token source: %w", err)}
+			}
+			ctx := context.Background()
+			client, err := gmailpkg.NewClient(ctx, ts)
+			if err != nil {
+				return gmailDoneMsg{err: fmt.Errorf("creating client: %w", err)}
+			}
+			email, historyID, err := client.GetProfile(ctx)
+			if err != nil {
+				return gmailDoneMsg{err: fmt.Errorf("getting email: %w", err)}
+			}
+			return gmailDoneMsg{email: email, historyID: historyID}
+		}
 	case gmailDoneMsg:
 		if msg.err != nil {
 			s.err = msg.err
@@ -100,35 +129,22 @@ func (s *gmailStep) View() string {
 			tui.SuccessStyle.Render("✓"),
 			lipgloss.NewStyle().Bold(true).Render(s.email))
 	}
-	return s.spinner.SpinnerView() + "\n\n" + tui.DimStyle.Render("  A browser window will open for Google sign-in...")
+	hint := tui.DimStyle.Render("  A browser window will open for Google sign-in...")
+	if s.authURL != "" {
+		hint = tui.DimStyle.Render("  Complete sign-in in your browser.") +
+			"\n\n  " + tui.DimStyle.Render("If the browser didn't open, ") +
+			tui.Hyperlink(s.authURL, tui.ClickModifier()+"+click here to sign in") + tui.DimStyle.Render(".")
+	}
+	return s.spinner.SpinnerView() + "\n\n" + hint
 }
 
 func (s *gmailStep) authenticate() tea.Cmd {
 	return func() tea.Msg {
-		// Run the OAuth flow (opens browser, saves token)
-		_, err := gmailpkg.Authenticate(config.CredentialsPath())
+		session, err := gmailpkg.StartAuth(config.CredentialsPath())
 		if err != nil {
 			return gmailDoneMsg{err: fmt.Errorf("authentication failed: %w", err)}
 		}
-
-		// Now get a token source from the saved token
-		ts, err := gmailpkg.TokenSource(config.CredentialsPath())
-		if err != nil {
-			return gmailDoneMsg{err: fmt.Errorf("creating token source: %w", err)}
-		}
-
-		ctx := context.Background()
-		client, err := gmailpkg.NewClient(ctx, ts)
-		if err != nil {
-			return gmailDoneMsg{err: fmt.Errorf("creating client: %w", err)}
-		}
-
-		email, historyID, err := client.GetProfile(ctx)
-		if err != nil {
-			return gmailDoneMsg{err: fmt.Errorf("getting email: %w", err)}
-		}
-
-		return gmailDoneMsg{email: email, historyID: historyID}
+		return gmailAuthStartedMsg{session: session}
 	}
 }
 
@@ -196,7 +212,7 @@ func (s *aiStep) Update(msg tea.Msg) (Step, tea.Cmd) {
 		if s.form.State == huh.StateCompleted {
 			s.phase = 1
 			s.spinner = newSpinnerStep("Fetching available models...")
-			return s, tea.Batch(s.spinner.spinner.Tick, s.fetchModels())
+			return s, tea.Batch(s.spinner.spinner.Tick, fetchModelsCmd(s.provider))
 		}
 		return s, cmd
 
@@ -321,17 +337,6 @@ func (s *aiStep) View() string {
 		return providerLine + "\n\n" + s.form.View()
 	}
 	return ""
-}
-
-func (s *aiStep) fetchModels() tea.Cmd {
-	return func() tea.Msg {
-		if s.provider == "ollama" {
-			models, err := ai.FetchOllamaModels()
-			return modelsFetchedMsg{models: models, err: err}
-		}
-		models, err := ai.FetchModelsForProvider(s.provider)
-		return modelsFetchedMsg{models: models, err: err}
-	}
 }
 
 // ──────────────────────────────────────────

@@ -30,6 +30,10 @@ const (
 
 // --- Messages ---
 
+type gmailReauthStartedMsg struct {
+	session *gmailpkg.AuthSession
+}
+
 type gmailReauthDoneMsg struct {
 	email     string
 	historyID uint64
@@ -54,11 +58,35 @@ const (
 	subflowPoll
 )
 
+// aiPhase constants for the AI sub-flow state machine.
+const (
+	aiPhaseEntrySelect = -1 // choose full vs model-only
+	aiPhaseProvider    = 0
+	aiPhaseFetchModels = 1
+	aiPhaseModelSelect = 2
+	aiPhaseAPIKey      = 3
+	aiPhaseValidate    = 4
+)
+
+// modelPhase constants for the model-only sub-flow.
+const (
+	modelPhaseFetch    = 0
+	modelPhaseSelect   = 1
+	modelPhaseValidate = 2
+)
+
+// labelPhase constants for the labels sub-flow.
+const (
+	labelPhaseMenu         = 0
+	labelPhaseName         = 1
+	labelPhaseDesc         = 2
+	labelPhaseRemoveSelect = 3
+)
+
 // ReconfigureView is a single TUI view for the entire reconfigure experience.
 // It never exits the shell — all sub-flows run inline as huh forms or spinners.
 type ReconfigureView struct {
-	cfg   *config.Config
-	store *db.Store
+	cfg *config.Config
 
 	phase   reconfigurePhase
 	subflow subflowKind
@@ -69,9 +97,10 @@ type ReconfigureView struct {
 
 	// Sub-flow: Gmail
 	gmailSpinner SpinnerStep
+	gmailAuthURL string
 
 	// Sub-flow: AI (reuses aiStep-like state machine)
-	aiPhase    int // -1=entry-select, 0=provider, 1=fetch-models, 2=model-select, 3=apikey, 4=validate
+	aiPhase int
 	aiForm     *huh.Form
 	aiSpinner  SpinnerStep
 	aiProvider string
@@ -81,13 +110,13 @@ type ReconfigureView struct {
 	aiEntry    string // "full" or "model-only"
 
 	// Sub-flow: Model only
-	modelPhase int // 0=fetch, 1=select, 2=validate
+	modelPhase int
 	modelForm  *huh.Form
 	modelSpin  SpinnerStep
 	modelVal   string
 
 	// Sub-flow: Labels
-	labelPhase   int // 0=sub-menu, 1=name, 2=desc, 3=remove-select
+	labelPhase int
 	labelForm    *huh.Form
 	labelAction  string // "add", "remove", "back"
 	labelName    string
@@ -157,11 +186,6 @@ func (v *ReconfigureView) buildMenu() {
 		),
 	)}
 
-// Choice returns the selected menu option (for backwards compat, unused now).
-func (v *ReconfigureView) Choice() string {
-	return v.menuChoice
-}
-
 // ─── Update ──────────────────────────────────────
 
 func (v *ReconfigureView) Update(msg tea.Msg) (tui.View, tea.Cmd) {
@@ -225,24 +249,11 @@ func (v *ReconfigureView) startGmailSubflow() tea.Cmd {
 
 func (v *ReconfigureView) doGmailReauth() tea.Cmd {
 	return func() tea.Msg {
-		_, err := gmailpkg.Authenticate(config.CredentialsPath())
+		session, err := gmailpkg.StartAuth(config.CredentialsPath())
 		if err != nil {
 			return gmailReauthDoneMsg{err: fmt.Errorf("authentication failed: %w", err)}
 		}
-		ts, err := gmailpkg.TokenSource(config.CredentialsPath())
-		if err != nil {
-			return gmailReauthDoneMsg{err: fmt.Errorf("token source: %w", err)}
-		}
-		ctx := context.Background()
-		client, err := gmailpkg.NewClient(ctx, ts)
-		if err != nil {
-			return gmailReauthDoneMsg{err: fmt.Errorf("client: %w", err)}
-		}
-		email, historyID, err := client.GetProfile(ctx)
-		if err != nil {
-			return gmailReauthDoneMsg{err: fmt.Errorf("profile: %w", err)}
-		}
-		return gmailReauthDoneMsg{email: email, historyID: historyID}
+		return gmailReauthStartedMsg{session: session}
 	}
 }
 
@@ -251,7 +262,7 @@ func (v *ReconfigureView) doGmailReauth() tea.Cmd {
 func (v *ReconfigureView) startAISubflow() tea.Cmd {
 	v.phase = phaseSubflow
 	v.subflow = subflowAI
-	v.aiPhase = -1
+	v.aiPhase = aiPhaseEntrySelect
 	v.aiProvider = ""
 	v.aiModel = ""
 	v.aiAPIKey = ""
@@ -277,22 +288,10 @@ func (v *ReconfigureView) startAISubflow() tea.Cmd {
 func (v *ReconfigureView) startModelSubflow() tea.Cmd {
 	v.phase = phaseSubflow
 	v.subflow = subflowModel
-	v.modelPhase = 0
+	v.modelPhase = modelPhaseFetch
 	v.modelVal = ""
 	v.modelSpin = newSpinnerStep("Fetching available models...")
-	return tea.Batch(v.modelSpin.spinner.Tick, v.fetchModelsForCurrent())
-}
-
-func (v *ReconfigureView) fetchModelsForCurrent() tea.Cmd {
-	provider := v.cfg.AI.Provider
-	return func() tea.Msg {
-		if provider == "ollama" {
-			models, err := ai.FetchOllamaModels()
-			return modelsFetchedMsg{models: models, err: err}
-		}
-		models, err := ai.FetchModelsForProvider(provider)
-		return modelsFetchedMsg{models: models, err: err}
-	}
+	return tea.Batch(v.modelSpin.spinner.Tick, fetchModelsCmd(v.cfg.AI.Provider))
 }
 
 // ─── Sub-flow: Labels ────────────────────────────
@@ -305,7 +304,7 @@ func (v *ReconfigureView) startLabelsSubflow() tea.Cmd {
 }
 
 func (v *ReconfigureView) showLabelMenu() tea.Cmd {
-	v.labelPhase = 0
+	v.labelPhase = labelPhaseMenu
 	v.labelAction = ""
 	v.labelForm = newForm(
 		huh.NewGroup(
@@ -365,6 +364,30 @@ func (v *ReconfigureView) updateGmail(msg tea.Msg) (tui.View, tea.Cmd) {
 		var cmd tea.Cmd
 		v.gmailSpinner.spinner, cmd = v.gmailSpinner.spinner.Update(msg)
 		return v, cmd
+	case gmailReauthStartedMsg:
+		v.gmailAuthURL = msg.session.AuthURL
+		// Now wait for the user to complete the flow
+		return v, func() tea.Msg {
+			token, err := msg.session.Wait()
+			if err != nil {
+				return gmailReauthDoneMsg{err: fmt.Errorf("authentication failed: %w", err)}
+			}
+			_ = token
+			ts, err := gmailpkg.TokenSource(config.CredentialsPath())
+			if err != nil {
+				return gmailReauthDoneMsg{err: fmt.Errorf("token source: %w", err)}
+			}
+			ctx := context.Background()
+			client, err := gmailpkg.NewClient(ctx, ts)
+			if err != nil {
+				return gmailReauthDoneMsg{err: fmt.Errorf("client: %w", err)}
+			}
+			email, historyID, err := client.GetProfile(ctx)
+			if err != nil {
+				return gmailReauthDoneMsg{err: fmt.Errorf("profile: %w", err)}
+			}
+			return gmailReauthDoneMsg{email: email, historyID: historyID}
+		}
 	case gmailReauthDoneMsg:
 		if msg.err != nil {
 			v.gmailSpinner.err = msg.err
@@ -377,21 +400,7 @@ func (v *ReconfigureView) updateGmail(msg tea.Msg) (tui.View, tea.Cmd) {
 		copy(labels, v.cfg.Labels)
 		historyID := msg.historyID
 		// Sync labels to new account
-		return v, v.startSave(fmt.Sprintf("Connected as %s", msg.email), func() tea.Msg {
-			store, err := db.Open(config.DBPath())
-			if err != nil {
-				return labelSyncDoneMsg{err: err}
-			}
-			defer store.Close()
-
-			ts, err := gmailpkg.TokenSource(config.CredentialsPath())
-			if err != nil {
-				return labelSyncDoneMsg{err: err}
-			}
-			client, err := gmailpkg.NewClient(context.Background(), ts)
-			if err != nil {
-				return labelSyncDoneMsg{err: err}
-			}
+		return v, v.startSave(fmt.Sprintf("Connected as %s", msg.email), withGmailAndStore(func(client *gmailpkg.Client, store *db.Store) tea.Msg {
 			customIdx := 0
 			for _, l := range labels {
 				_, existingBg, existingTx, dbErr := store.GetLabelMappingWithColor(l.Name)
@@ -412,7 +421,7 @@ func (v *ReconfigureView) updateGmail(msg tea.Msg) (tui.View, tea.Cmd) {
 			}
 			store.SetState("history_id", fmt.Sprintf("%d", historyID))
 			return labelSyncDoneMsg{}
-		})
+		}))
 	}
 	return v, nil
 }
@@ -421,7 +430,7 @@ func (v *ReconfigureView) updateGmail(msg tea.Msg) (tui.View, tea.Cmd) {
 
 func (v *ReconfigureView) updateAI(msg tea.Msg) (tui.View, tea.Cmd) {
 	switch v.aiPhase {
-	case -1: // Entry sub-select: full change vs model-only
+	case aiPhaseEntrySelect:
 		form, cmd := v.aiForm.Update(msg)
 		if f, ok := form.(*huh.Form); ok {
 			v.aiForm = f
@@ -432,7 +441,7 @@ func (v *ReconfigureView) updateAI(msg tea.Msg) (tui.View, tea.Cmd) {
 				return v, v.startModelSubflow()
 			}
 			// Full provider change — show provider select
-			v.aiPhase = 0
+			v.aiPhase = aiPhaseProvider
 			providerNames := ai.ProviderNamesOrdered()
 			options := make([]huh.Option[string], len(providerNames))
 			for i, name := range providerNames {
@@ -450,26 +459,26 @@ func (v *ReconfigureView) updateAI(msg tea.Msg) (tui.View, tea.Cmd) {
 		}
 		return v, cmd
 
-	case 0: // Provider selection
+	case aiPhaseProvider:
 		form, cmd := v.aiForm.Update(msg)
 		if f, ok := form.(*huh.Form); ok {
 			v.aiForm = f
 		}
 		if v.aiForm.State == huh.StateCompleted {
-			v.aiPhase = 1
+			v.aiPhase = aiPhaseFetchModels
 			v.aiSpinner = newSpinnerStep("Fetching available models...")
-			return v, tea.Batch(v.aiSpinner.spinner.Tick, v.fetchModelsForAI())
+			return v, tea.Batch(v.aiSpinner.spinner.Tick, fetchModelsCmd(v.aiProvider))
 		}
 		return v, cmd
 
-	case 1: // Fetching models
+	case aiPhaseFetchModels:
 		switch msg := msg.(type) {
 		case spinner.TickMsg:
 			var cmd tea.Cmd
 			v.aiSpinner.spinner, cmd = v.aiSpinner.spinner.Update(msg)
 			return v, cmd
 		case modelsFetchedMsg:
-			v.aiPhase = 2
+			v.aiPhase = aiPhaseModelSelect
 			if msg.err != nil || len(msg.models) == 0 {
 				v.aiForm = newForm(
 					huh.NewGroup(
@@ -497,7 +506,7 @@ func (v *ReconfigureView) updateAI(msg tea.Msg) (tui.View, tea.Cmd) {
 		}
 		return v, nil
 
-	case 2: // Model selection
+	case aiPhaseModelSelect:
 		form, cmd := v.aiForm.Update(msg)
 		if f, ok := form.(*huh.Form); ok {
 			v.aiForm = f
@@ -528,7 +537,7 @@ func (v *ReconfigureView) updateAI(msg tea.Msg) (tui.View, tea.Cmd) {
 			}
 			// Reuse existing key if same provider
 			if v.cfg.AI.Provider == v.aiProvider && v.cfg.AI.APIKey != "" {
-				v.aiPhase = 3
+				v.aiPhase = aiPhaseAPIKey
 				v.aiAPIKey = ""
 				v.aiReuseKey = true // default to yes
 				v.aiForm = newForm(
@@ -540,7 +549,7 @@ func (v *ReconfigureView) updateAI(msg tea.Msg) (tui.View, tea.Cmd) {
 				)
 				return v, v.aiForm.Init()
 			}
-			v.aiPhase = 3
+			v.aiPhase = aiPhaseAPIKey
 			v.aiReuseKey = false
 			v.aiForm = newForm(
 				huh.NewGroup(
@@ -554,7 +563,7 @@ func (v *ReconfigureView) updateAI(msg tea.Msg) (tui.View, tea.Cmd) {
 		}
 		return v, cmd
 
-	case 3: // API key / reuse confirm
+	case aiPhaseAPIKey:
 		form, cmd := v.aiForm.Update(msg)
 		if f, ok := form.(*huh.Form); ok {
 			v.aiForm = f
@@ -582,7 +591,7 @@ func (v *ReconfigureView) updateAI(msg tea.Msg) (tui.View, tea.Cmd) {
 		}
 		return v, cmd
 
-	case 4: // Validating
+	case aiPhaseValidate:
 		switch msg := msg.(type) {
 		case spinner.TickMsg:
 			var cmd tea.Cmd
@@ -610,20 +619,8 @@ func (v *ReconfigureView) updateAI(msg tea.Msg) (tui.View, tea.Cmd) {
 	return v, nil
 }
 
-func (v *ReconfigureView) fetchModelsForAI() tea.Cmd {
-	provider := v.aiProvider
-	return func() tea.Msg {
-		if provider == "ollama" {
-			models, err := ai.FetchOllamaModels()
-			return modelsFetchedMsg{models: models, err: err}
-		}
-		models, err := ai.FetchModelsForProvider(provider)
-		return modelsFetchedMsg{models: models, err: err}
-	}
-}
-
 func (v *ReconfigureView) applyAIChanges() tea.Cmd {
-	v.aiPhase = 4
+	v.aiPhase = aiPhaseValidate
 	v.aiSpinner = newSpinnerStep("Verifying connection...")
 	return tea.Batch(v.aiSpinner.spinner.Tick, v.validateAI())
 }
@@ -645,14 +642,14 @@ func (v *ReconfigureView) validateAI() tea.Cmd {
 
 func (v *ReconfigureView) updateModel(msg tea.Msg) (tui.View, tea.Cmd) {
 	switch v.modelPhase {
-	case 0: // Fetching models
+	case modelPhaseFetch:
 		switch msg := msg.(type) {
 		case spinner.TickMsg:
 			var cmd tea.Cmd
 			v.modelSpin.spinner, cmd = v.modelSpin.spinner.Update(msg)
 			return v, cmd
 		case modelsFetchedMsg:
-			v.modelPhase = 1
+			v.modelPhase = modelPhaseSelect
 			if msg.err != nil || len(msg.models) == 0 {
 				v.modelForm = newForm(
 					huh.NewGroup(
@@ -680,7 +677,7 @@ func (v *ReconfigureView) updateModel(msg tea.Msg) (tui.View, tea.Cmd) {
 		}
 		return v, nil
 
-	case 1: // Model selection
+	case modelPhaseSelect:
 		form, cmd := v.modelForm.Update(msg)
 		if f, ok := form.(*huh.Form); ok {
 			v.modelForm = f
@@ -698,13 +695,13 @@ func (v *ReconfigureView) updateModel(msg tea.Msg) (tui.View, tea.Cmd) {
 				return v, v.modelForm.Init()
 			}
 			// Validate
-			v.modelPhase = 2
+			v.modelPhase = modelPhaseValidate
 			v.modelSpin = newSpinnerStep("Verifying connection...")
 			return v, tea.Batch(v.modelSpin.spinner.Tick, v.validateModel())
 		}
 		return v, cmd
 
-	case 2: // Validating
+	case modelPhaseValidate:
 		switch msg := msg.(type) {
 		case spinner.TickMsg:
 			var cmd tea.Cmd
@@ -743,7 +740,7 @@ func (v *ReconfigureView) validateModel() tea.Cmd {
 
 func (v *ReconfigureView) updateLabels(msg tea.Msg) (tui.View, tea.Cmd) {
 	switch v.labelPhase {
-	case 0: // Sub-menu: add / remove / back
+	case labelPhaseMenu:
 		form, cmd := v.labelForm.Update(msg)
 		if f, ok := form.(*huh.Form); ok {
 			v.labelForm = f
@@ -755,7 +752,7 @@ func (v *ReconfigureView) updateLabels(msg tea.Msg) (tui.View, tea.Cmd) {
 				v.buildMenu()
 				return v, v.menuForm.Init()
 			case "add":
-				v.labelPhase = 1
+				v.labelPhase = labelPhaseName
 				v.labelDupErr = ""
 				v.labelName = ""
 				v.labelForm = newForm(
@@ -771,7 +768,7 @@ func (v *ReconfigureView) updateLabels(msg tea.Msg) (tui.View, tea.Cmd) {
 					// Nothing to remove — go back to label menu
 					return v, v.showLabelMenu()
 				}
-				v.labelPhase = 3
+				v.labelPhase = labelPhaseRemoveSelect
 				v.labelRemSel = nil
 				options := make([]huh.Option[string], len(v.cfg.Labels))
 				for i, l := range v.cfg.Labels {
@@ -790,7 +787,7 @@ func (v *ReconfigureView) updateLabels(msg tea.Msg) (tui.View, tea.Cmd) {
 		}
 		return v, cmd
 
-	case 1: // Name input
+	case labelPhaseName:
 		form, cmd := v.labelForm.Update(msg)
 		if f, ok := form.(*huh.Form); ok {
 			v.labelForm = f
@@ -813,7 +810,7 @@ func (v *ReconfigureView) updateLabels(msg tea.Msg) (tui.View, tea.Cmd) {
 				)
 				return v, v.labelForm.Init()
 			}
-			v.labelPhase = 2
+			v.labelPhase = labelPhaseDesc
 			v.labelDupErr = ""
 			v.labelDesc = ""
 			v.labelForm = newForm(
@@ -827,7 +824,7 @@ func (v *ReconfigureView) updateLabels(msg tea.Msg) (tui.View, tea.Cmd) {
 		}
 		return v, cmd
 
-	case 2: // Desc input — then save
+	case labelPhaseDesc:
 		form, cmd := v.labelForm.Update(msg)
 		if f, ok := form.(*huh.Form); ok {
 			v.labelForm = f
@@ -847,7 +844,7 @@ func (v *ReconfigureView) updateLabels(msg tea.Msg) (tui.View, tea.Cmd) {
 		}
 		return v, cmd
 
-	case 3: // Remove multi-select
+	case labelPhaseRemoveSelect:
 		form, cmd := v.labelForm.Update(msg)
 		if f, ok := form.(*huh.Form); ok {
 			v.labelForm = f
@@ -890,7 +887,9 @@ func (v *ReconfigureView) isLabelDuplicate(name string) bool {
 	return false
 }
 
-func (v *ReconfigureView) syncAddedLabels(added []config.Label) func() tea.Msg {
+// withGmailAndStore handles the common boilerplate of creating a Gmail client
+// and opening the DB store, then calls fn. Returns a labelSyncDoneMsg on error.
+func withGmailAndStore(fn func(client *gmailpkg.Client, store *db.Store) tea.Msg) func() tea.Msg {
 	return func() tea.Msg {
 		ts, err := gmailpkg.TokenSource(config.CredentialsPath())
 		if err != nil {
@@ -905,6 +904,12 @@ func (v *ReconfigureView) syncAddedLabels(added []config.Label) func() tea.Msg {
 			return labelSyncDoneMsg{err: err}
 		}
 		defer store.Close()
+		return fn(client, store)
+	}
+}
+
+func (v *ReconfigureView) syncAddedLabels(added []config.Label) func() tea.Msg {
+	return withGmailAndStore(func(client *gmailpkg.Client, store *db.Store) tea.Msg {
 		customIdx := 0
 		for _, l := range added {
 			bg, tx := gmailpkg.ColorForLabel(l.Name, customIdx)
@@ -918,24 +923,11 @@ func (v *ReconfigureView) syncAddedLabels(added []config.Label) func() tea.Msg {
 			store.SetLabelMappingWithColor(l.Name, gmailID, bg, tx)
 		}
 		return labelSyncDoneMsg{}
-	}
+	})
 }
 
 func (v *ReconfigureView) syncRemovedLabels(removed []config.Label) func() tea.Msg {
-	return func() tea.Msg {
-		ts, err := gmailpkg.TokenSource(config.CredentialsPath())
-		if err != nil {
-			return labelSyncDoneMsg{err: err}
-		}
-		client, err := gmailpkg.NewClient(context.Background(), ts)
-		if err != nil {
-			return labelSyncDoneMsg{err: err}
-		}
-		store, err := db.Open(config.DBPath())
-		if err != nil {
-			return labelSyncDoneMsg{err: err}
-		}
-		defer store.Close()
+	return withGmailAndStore(func(client *gmailpkg.Client, store *db.Store) tea.Msg {
 		for _, l := range removed {
 			gmailID, err := store.GetLabelMapping(l.Name)
 			if err != nil {
@@ -945,7 +937,7 @@ func (v *ReconfigureView) syncRemovedLabels(removed []config.Label) func() tea.M
 			store.DeleteLabelMapping(l.Name)
 		}
 		return labelSyncDoneMsg{}
-	}
+	})
 }
 
 // ─── Poll update ─────────────────────────────────
@@ -1086,24 +1078,29 @@ func (v *ReconfigureView) View() string {
 func (v *ReconfigureView) renderSubflow() string {
 	switch v.subflow {
 	case subflowGmail:
-		return v.gmailSpinner.SpinnerView() + "\n\n" +
-			tui.DimStyle.Render("  A browser window will open for Google sign-in...")
+		hint := tui.DimStyle.Render("  A browser window will open for Google sign-in...")
+		if v.gmailAuthURL != "" {
+			hint = tui.DimStyle.Render("  Complete sign-in in your browser.") +
+				"\n\n  " + tui.DimStyle.Render("If the browser didn't open, ") +
+				tui.Hyperlink(v.gmailAuthURL, tui.ClickModifier()+"+click here to sign in") + tui.DimStyle.Render(".")
+		}
+		return v.gmailSpinner.SpinnerView() + "\n\n" + hint
 
 	case subflowAI:
 		switch v.aiPhase {
-		case -1:
+		case aiPhaseEntrySelect:
 			return v.aiForm.View()
-		case 0:
+		case aiPhaseProvider:
 			return v.aiForm.View()
-		case 1:
+		case aiPhaseFetchModels:
 			return v.aiSpinner.SpinnerView()
-		case 2, 3:
+		case aiPhaseModelSelect, aiPhaseAPIKey:
 			providerLine := fmt.Sprintf("  Provider: %s", lipgloss.NewStyle().Bold(true).Render(v.aiProvider))
-			if v.aiPhase == 3 && v.aiModel != "" {
+			if v.aiPhase == aiPhaseAPIKey && v.aiModel != "" {
 				providerLine += fmt.Sprintf("  Model: %s", lipgloss.NewStyle().Bold(true).Render(v.aiModel))
 			}
 			return providerLine + "\n\n" + v.aiForm.View()
-		case 4:
+		case aiPhaseValidate:
 			providerLine := fmt.Sprintf("  Provider: %s  Model: %s",
 				lipgloss.NewStyle().Bold(true).Render(v.aiProvider),
 				lipgloss.NewStyle().Bold(true).Render(v.aiModel))
@@ -1112,18 +1109,18 @@ func (v *ReconfigureView) renderSubflow() string {
 
 	case subflowModel:
 		switch v.modelPhase {
-		case 0:
+		case modelPhaseFetch:
 			return v.modelSpin.SpinnerView()
-		case 1:
+		case modelPhaseSelect:
 			return v.modelForm.View()
-		case 2:
+		case modelPhaseValidate:
 			return v.modelSpin.SpinnerView()
 		}
 
 	case subflowLabels:
 		// Show current labels list above the form
 		var labelList string
-		if len(v.cfg.Labels) > 0 && v.labelPhase == 0 {
+		if len(v.cfg.Labels) > 0 && v.labelPhase == labelPhaseMenu {
 			labelList = tui.DimStyle.Render(fmt.Sprintf("  Current: %d labels", len(v.cfg.Labels))) + "\n"
 			for _, l := range v.cfg.Labels {
 				labelList += tui.DimStyle.Render(fmt.Sprintf("    · %s", l.Name)) + "\n"

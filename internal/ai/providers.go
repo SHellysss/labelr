@@ -81,14 +81,6 @@ func ListProviders() []Provider {
 	return result
 }
 
-func ProviderNames() []string {
-	names := make([]string, 0, len(providers))
-	for name := range providers {
-		names = append(names, name)
-	}
-	return names
-}
-
 // providerOrder is the fixed display order for provider selection.
 var providerOrder = []string{"openai", "deepseek", "groq", "ollama"}
 
@@ -203,8 +195,8 @@ func writeModelsCache(path string, cache *modelsCacheEntry) {
 	_ = os.WriteFile(path, data, 0600)
 }
 
-// OllamaModel represents an Ollama model from /api/tags.
-type OllamaModel struct {
+// ollamaModel represents an Ollama model from /api/tags.
+type ollamaModel struct {
 	Name string `json:"name"`
 }
 
@@ -213,7 +205,7 @@ var ollamaBaseURL = "http://localhost:11434"
 
 // ollamaTagsResponse represents the /api/tags response (all pulled models).
 type ollamaTagsResponse struct {
-	Models []OllamaModel `json:"models"`
+	Models []ollamaModel `json:"models"`
 }
 
 // FetchOllamaModels queries Ollama /api/tags for all pulled models.

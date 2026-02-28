@@ -57,13 +57,16 @@ func (m ShellModel) View() string {
 	content := m.view.View()
 	footer := RenderHelp(m.view.HelpKeys(), m.width)
 
-	return lipgloss.JoinVertical(lipgloss.Left,
-		header,
-		"",
-		content,
-		"",
-		footer,
-	)
+	return lipgloss.NewStyle().
+		Width(m.width).
+		Height(m.height).
+		Render(lipgloss.JoinVertical(lipgloss.Left,
+			header,
+			"",
+			content,
+			"",
+			footer,
+		))
 }
 
 // Run creates and runs a Bubble Tea program with the shell wrapping the view.
