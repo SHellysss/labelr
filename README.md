@@ -18,6 +18,12 @@ labelr setup
 
 The wizard connects your Gmail, picks an AI provider, sets up labels, and starts the background service. That's it.
 
+Check service health and queue stats anytime:
+
+```bash
+labelr status
+```
+
 To label old emails:
 
 ```bash
