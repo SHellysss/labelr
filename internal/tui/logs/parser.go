@@ -4,7 +4,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/pankajbeniwal/labelr/internal/tui"
+	"github.com/Pankaj3112/labelr/internal/tui"
 )
 
 // LogEntry is a parsed log line.

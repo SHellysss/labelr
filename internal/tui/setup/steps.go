@@ -4,16 +4,17 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/pankajbeniwal/labelr/internal/ai"
-	"github.com/pankajbeniwal/labelr/internal/config"
-	gmailpkg "github.com/pankajbeniwal/labelr/internal/gmail"
-	"github.com/pankajbeniwal/labelr/internal/tui"
+	"github.com/Pankaj3112/labelr/internal/ai"
+	"github.com/Pankaj3112/labelr/internal/config"
+	gmailpkg "github.com/Pankaj3112/labelr/internal/gmail"
+	"github.com/Pankaj3112/labelr/internal/tui"
 )
 
 // ──────────────────────────────────────────
@@ -159,12 +160,13 @@ type modelsFetchedMsg struct {
 
 type aiStep struct {
 	deps     *Deps
-	phase    int // 0=provider, 1=model-fetch, 2=model-select, 3=apikey
+	phase    int // 0=provider, 1=model-fetch, 2=model-select, 3=apikey, 4=baseurl (custom)
 	form     *huh.Form
 	spinner  SpinnerStep
 	provider string
 	model    string
 	apiKey   string
+	baseURL  string // for custom provider
 	models   []string
 	done     bool
 }
@@ -210,6 +212,19 @@ func (s *aiStep) Update(msg tea.Msg) (Step, tea.Cmd) {
 			s.form = f
 		}
 		if s.form.State == huh.StateCompleted {
+			if s.provider == "custom" {
+				// Custom provider — ask for base URL first
+				s.phase = 4
+				s.baseURL = ""
+				s.form = newForm(
+					huh.NewGroup(
+						huh.NewInput().
+							Title("API base URL (e.g. https://api.example.com/v1)").
+							Value(&s.baseURL),
+					),
+				)
+				return s, s.form.Init()
+			}
 			s.phase = 1
 			s.spinner = newSpinnerStep("Fetching available models...")
 			return s, tea.Batch(s.spinner.spinner.Tick, fetchModelsCmd(s.provider))
@@ -260,6 +275,7 @@ func (s *aiStep) Update(msg tea.Msg) (Step, tea.Cmd) {
 			s.form = f
 		}
 		if s.form.State == huh.StateCompleted {
+			s.model = strings.TrimSpace(s.model)
 			if s.model == "__other__" {
 				s.model = ""
 				s.form = newForm(
@@ -293,10 +309,14 @@ func (s *aiStep) Update(msg tea.Msg) (Step, tea.Cmd) {
 					return s, nil
 				}
 			}
+			apiKeyTitle := "API key"
+			if s.provider == "custom" {
+				apiKeyTitle = "API key (optional, press Enter to skip)"
+			}
 			s.form = newForm(
 				huh.NewGroup(
 					huh.NewInput().
-						Title("API key").
+						Title(apiKeyTitle).
 						EchoMode(huh.EchoModePassword).
 						Value(&s.apiKey),
 				),
@@ -311,11 +331,36 @@ func (s *aiStep) Update(msg tea.Msg) (Step, tea.Cmd) {
 			s.form = f
 		}
 		if s.form.State == huh.StateCompleted {
+			s.apiKey = strings.TrimSpace(s.apiKey)
 			s.deps.Cfg.AI.Provider = s.provider
 			s.deps.Cfg.AI.Model = s.model
 			s.deps.Cfg.AI.APIKey = s.apiKey
-			s.deps.Cfg.AI.BaseURL = ai.ProviderBaseURL(s.provider)
+			if s.provider == "custom" {
+				s.deps.Cfg.AI.BaseURL = s.baseURL
+			} else {
+				s.deps.Cfg.AI.BaseURL = ai.ProviderBaseURL(s.provider)
+			}
 			s.done = true
+		}
+		return s, cmd
+
+	case 4: // Base URL input (custom provider)
+		form, cmd := s.form.Update(msg)
+		if f, ok := form.(*huh.Form); ok {
+			s.form = f
+		}
+		if s.form.State == huh.StateCompleted {
+			s.baseURL = strings.TrimSpace(s.baseURL)
+			// Go to model name input (no fetch for custom)
+			s.phase = 2
+			s.form = newForm(
+				huh.NewGroup(
+					huh.NewInput().
+						Title("Enter model name").
+						Value(&s.model),
+				),
+			)
+			return s, s.form.Init()
 		}
 		return s, cmd
 	}
@@ -329,8 +374,14 @@ func (s *aiStep) View() string {
 		return s.form.View()
 	case 1:
 		return s.spinner.SpinnerView()
+	case 4: // base URL input for custom provider
+		providerLine := fmt.Sprintf("  Provider: %s", lipgloss.NewStyle().Bold(true).Render(s.provider))
+		return providerLine + "\n\n" + s.form.View()
 	case 2, 3:
 		providerLine := fmt.Sprintf("  Provider: %s", lipgloss.NewStyle().Bold(true).Render(s.provider))
+		if s.provider == "custom" && s.baseURL != "" {
+			providerLine += fmt.Sprintf("  URL: %s", lipgloss.NewStyle().Bold(true).Render(s.baseURL))
+		}
 		if s.phase == 3 && s.model != "" {
 			providerLine += fmt.Sprintf("  Model: %s", lipgloss.NewStyle().Bold(true).Render(s.model))
 		}
@@ -515,6 +566,7 @@ func (s *labelsStep) Update(msg tea.Msg) (Step, tea.Cmd) {
 			s.form = f
 		}
 		if s.form.State == huh.StateCompleted {
+			s.newLabel = strings.TrimSpace(s.newLabel)
 			// Check for duplicate
 			if s.isDuplicate(s.newLabel) {
 				s.dupErr = fmt.Sprintf("Label %q already exists", s.newLabel)
@@ -549,6 +601,7 @@ func (s *labelsStep) Update(msg tea.Msg) (Step, tea.Cmd) {
 			s.form = f
 		}
 		if s.form.State == huh.StateCompleted {
+			s.newDesc = strings.TrimSpace(s.newDesc)
 			// Add label with description
 			s.selected = append(s.selected, s.newLabel)
 			desc := s.newDesc

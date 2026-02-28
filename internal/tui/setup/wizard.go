@@ -8,11 +8,11 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/pankajbeniwal/labelr/internal/ai"
-	"github.com/pankajbeniwal/labelr/internal/config"
-	"github.com/pankajbeniwal/labelr/internal/db"
-	"github.com/pankajbeniwal/labelr/internal/service"
-	"github.com/pankajbeniwal/labelr/internal/tui"
+	"github.com/Pankaj3112/labelr/internal/ai"
+	"github.com/Pankaj3112/labelr/internal/config"
+	"github.com/Pankaj3112/labelr/internal/db"
+	"github.com/Pankaj3112/labelr/internal/service"
+	"github.com/Pankaj3112/labelr/internal/tui"
 )
 
 // stepID identifies a step in the wizard.

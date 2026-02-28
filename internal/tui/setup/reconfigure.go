@@ -5,18 +5,19 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/pankajbeniwal/labelr/internal/ai"
-	"github.com/pankajbeniwal/labelr/internal/config"
-	"github.com/pankajbeniwal/labelr/internal/db"
-	gmailpkg "github.com/pankajbeniwal/labelr/internal/gmail"
-	"github.com/pankajbeniwal/labelr/internal/service"
-	"github.com/pankajbeniwal/labelr/internal/tui"
+	"github.com/Pankaj3112/labelr/internal/ai"
+	"github.com/Pankaj3112/labelr/internal/config"
+	"github.com/Pankaj3112/labelr/internal/db"
+	gmailpkg "github.com/Pankaj3112/labelr/internal/gmail"
+	"github.com/Pankaj3112/labelr/internal/service"
+	"github.com/Pankaj3112/labelr/internal/tui"
 )
 
 // reconfigurePhase represents where we are in the reconfigure flow.
@@ -66,6 +67,7 @@ const (
 	aiPhaseModelSelect = 2
 	aiPhaseAPIKey      = 3
 	aiPhaseValidate    = 4
+	aiPhaseBaseURL     = 5 // custom provider: ask for base URL
 )
 
 // modelPhase constants for the model-only sub-flow.
@@ -106,8 +108,10 @@ type ReconfigureView struct {
 	aiProvider string
 	aiModel    string
 	aiAPIKey   string
-	aiReuseKey bool   // whether user chose to reuse existing API key
-	aiEntry    string // "full" or "model-only"
+	aiBaseURL  string // for custom provider
+	aiReuseKey    bool   // whether user chose to reuse existing API key
+	aiKeyPrompted bool   // whether the API key input form has been shown
+	aiEntry       string // "full" or "model-only"
 
 	// Sub-flow: Model only
 	modelPhase int
@@ -266,6 +270,8 @@ func (v *ReconfigureView) startAISubflow() tea.Cmd {
 	v.aiProvider = ""
 	v.aiModel = ""
 	v.aiAPIKey = ""
+	v.aiBaseURL = ""
+	v.aiKeyPrompted = false
 	v.aiEntry = ""
 
 	dim := tui.DimStyle.Render
@@ -465,9 +471,42 @@ func (v *ReconfigureView) updateAI(msg tea.Msg) (tui.View, tea.Cmd) {
 			v.aiForm = f
 		}
 		if v.aiForm.State == huh.StateCompleted {
+			if v.aiProvider == "custom" {
+				// Custom provider — ask for base URL first
+				v.aiPhase = aiPhaseBaseURL
+				v.aiBaseURL = ""
+				v.aiForm = newForm(
+					huh.NewGroup(
+						huh.NewInput().
+							Title("API base URL (e.g. https://api.example.com/v1)").
+							Value(&v.aiBaseURL),
+					),
+				)
+				return v, v.aiForm.Init()
+			}
 			v.aiPhase = aiPhaseFetchModels
 			v.aiSpinner = newSpinnerStep("Fetching available models...")
 			return v, tea.Batch(v.aiSpinner.spinner.Tick, fetchModelsCmd(v.aiProvider))
+		}
+		return v, cmd
+
+	case aiPhaseBaseURL: // Custom provider base URL input
+		form, cmd := v.aiForm.Update(msg)
+		if f, ok := form.(*huh.Form); ok {
+			v.aiForm = f
+		}
+		if v.aiForm.State == huh.StateCompleted {
+			v.aiBaseURL = strings.TrimSpace(v.aiBaseURL)
+			// Go to model name input (no fetch for custom)
+			v.aiPhase = aiPhaseModelSelect
+			v.aiForm = newForm(
+				huh.NewGroup(
+					huh.NewInput().
+						Title("Enter model name").
+						Value(&v.aiModel),
+				),
+			)
+			return v, v.aiForm.Init()
 		}
 		return v, cmd
 
@@ -512,6 +551,7 @@ func (v *ReconfigureView) updateAI(msg tea.Msg) (tui.View, tea.Cmd) {
 			v.aiForm = f
 		}
 		if v.aiForm.State == huh.StateCompleted {
+			v.aiModel = strings.TrimSpace(v.aiModel)
 			if v.aiModel == "__other__" {
 				v.aiModel = ""
 				v.aiForm = newForm(
@@ -551,10 +591,15 @@ func (v *ReconfigureView) updateAI(msg tea.Msg) (tui.View, tea.Cmd) {
 			}
 			v.aiPhase = aiPhaseAPIKey
 			v.aiReuseKey = false
+			v.aiKeyPrompted = true
+			apiKeyTitle := "Enter your API key"
+			if v.aiProvider == "custom" {
+				apiKeyTitle = "API key (optional, press Enter to skip)"
+			}
 			v.aiForm = newForm(
 				huh.NewGroup(
 					huh.NewInput().
-						Title("Enter your API key").
+						Title(apiKeyTitle).
 						EchoMode(huh.EchoModePassword).
 						Value(&v.aiAPIKey),
 				),
@@ -569,20 +614,30 @@ func (v *ReconfigureView) updateAI(msg tea.Msg) (tui.View, tea.Cmd) {
 			v.aiForm = f
 		}
 		if v.aiForm.State == huh.StateCompleted {
+			v.aiAPIKey = strings.TrimSpace(v.aiAPIKey)
 			// Check if the user confirmed reuse of existing key
 			if v.aiReuseKey {
 				v.aiAPIKey = v.cfg.AI.APIKey
 				return v, v.applyAIChanges()
 			}
-			// If key was entered via input form, use it
+			// If key was entered via input form, proceed
+			// (custom providers can have empty keys, but only after showing the input)
+			if v.aiKeyPrompted {
+				return v, v.applyAIChanges()
+			}
 			if v.aiAPIKey != "" {
 				return v, v.applyAIChanges()
 			}
 			// User declined reuse — show input form
+			v.aiKeyPrompted = true
+			apiKeyTitle := "Enter your API key"
+			if v.aiProvider == "custom" {
+				apiKeyTitle = "API key (optional, press Enter to skip)"
+			}
 			v.aiForm = newForm(
 				huh.NewGroup(
 					huh.NewInput().
-						Title("Enter your API key").
+						Title(apiKeyTitle).
 						EchoMode(huh.EchoModePassword).
 						Value(&v.aiAPIKey),
 				),
@@ -604,11 +659,14 @@ func (v *ReconfigureView) updateAI(msg tea.Msg) (tui.View, tea.Cmd) {
 				return v, nil
 			}
 			v.aiSpinner.done = true
-			providerInfo, _ := ai.GetProvider(v.aiProvider)
 			v.cfg.AI.Provider = v.aiProvider
 			v.cfg.AI.Model = v.aiModel
 			v.cfg.AI.APIKey = v.aiAPIKey
-			v.cfg.AI.BaseURL = providerInfo.BaseURL
+			if v.aiProvider == "custom" {
+				v.cfg.AI.BaseURL = v.aiBaseURL
+			} else {
+				v.cfg.AI.BaseURL = ai.ProviderBaseURL(v.aiProvider)
+			}
 			return v, v.startSave(
 				fmt.Sprintf("Connected to %s / %s", v.aiProvider, v.aiModel),
 				nil,
@@ -629,10 +687,13 @@ func (v *ReconfigureView) validateAI() tea.Cmd {
 	provider := v.aiProvider
 	model := v.aiModel
 	apiKey := v.aiAPIKey
+	baseURL := v.aiBaseURL
 	labels := v.cfg.Labels
 	return func() tea.Msg {
-		p, _ := ai.GetProvider(provider)
-		classifier := ai.NewClassifier(apiKey, p.BaseURL, model, labels)
+		if provider != "custom" {
+			baseURL = ai.ProviderBaseURL(provider)
+		}
+		classifier := ai.NewClassifier(apiKey, baseURL, model, labels)
 		err := classifier.ValidateConnection(context.Background())
 		return validateDoneMsg{err: err}
 	}
@@ -683,6 +744,7 @@ func (v *ReconfigureView) updateModel(msg tea.Msg) (tui.View, tea.Cmd) {
 			v.modelForm = f
 		}
 		if v.modelForm.State == huh.StateCompleted {
+			v.modelVal = strings.TrimSpace(v.modelVal)
 			if v.modelVal == "__other__" {
 				v.modelVal = ""
 				v.modelForm = newForm(
@@ -793,6 +855,7 @@ func (v *ReconfigureView) updateLabels(msg tea.Msg) (tui.View, tea.Cmd) {
 			v.labelForm = f
 		}
 		if v.labelForm.State == huh.StateCompleted {
+			v.labelName = strings.TrimSpace(v.labelName)
 			if v.labelName == "" {
 				// Empty name — go back to label menu
 				return v, v.showLabelMenu()
@@ -830,6 +893,7 @@ func (v *ReconfigureView) updateLabels(msg tea.Msg) (tui.View, tea.Cmd) {
 			v.labelForm = f
 		}
 		if v.labelForm.State == huh.StateCompleted {
+			v.labelDesc = strings.TrimSpace(v.labelDesc)
 			desc := v.labelDesc
 			if desc == "" {
 				desc = "Custom label"
@@ -948,6 +1012,7 @@ func (v *ReconfigureView) updatePoll(msg tea.Msg) (tui.View, tea.Cmd) {
 		v.pollForm = f
 	}
 	if v.pollForm.State == huh.StateCompleted {
+		v.pollStr = strings.TrimSpace(v.pollStr)
 		interval, err := strconv.Atoi(v.pollStr)
 		if err != nil || interval <= 0 {
 			v.pollErr = "Please enter a positive number"
@@ -1092,10 +1157,16 @@ func (v *ReconfigureView) renderSubflow() string {
 			return v.aiForm.View()
 		case aiPhaseProvider:
 			return v.aiForm.View()
+		case aiPhaseBaseURL:
+			providerLine := fmt.Sprintf("  Provider: %s", lipgloss.NewStyle().Bold(true).Render(v.aiProvider))
+			return providerLine + "\n\n" + v.aiForm.View()
 		case aiPhaseFetchModels:
 			return v.aiSpinner.SpinnerView()
 		case aiPhaseModelSelect, aiPhaseAPIKey:
 			providerLine := fmt.Sprintf("  Provider: %s", lipgloss.NewStyle().Bold(true).Render(v.aiProvider))
+			if v.aiProvider == "custom" && v.aiBaseURL != "" {
+				providerLine += fmt.Sprintf("  URL: %s", lipgloss.NewStyle().Bold(true).Render(v.aiBaseURL))
+			}
 			if v.aiPhase == aiPhaseAPIKey && v.aiModel != "" {
 				providerLine += fmt.Sprintf("  Model: %s", lipgloss.NewStyle().Bold(true).Render(v.aiModel))
 			}

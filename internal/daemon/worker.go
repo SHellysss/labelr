@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/pankajbeniwal/labelr/internal/db"
-	"github.com/pankajbeniwal/labelr/internal/gmail"
-	applog "github.com/pankajbeniwal/labelr/internal/log"
+	"github.com/Pankaj3112/labelr/internal/db"
+	"github.com/Pankaj3112/labelr/internal/gmail"
+	applog "github.com/Pankaj3112/labelr/internal/log"
 )
 
 type EmailClassifier interface {

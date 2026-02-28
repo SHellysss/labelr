@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/pankajbeniwal/labelr/internal/config"
-	"github.com/pankajbeniwal/labelr/internal/tui"
-	tuisetup "github.com/pankajbeniwal/labelr/internal/tui/setup"
+	"github.com/Pankaj3112/labelr/internal/config"
+	"github.com/Pankaj3112/labelr/internal/tui"
+	tuisetup "github.com/Pankaj3112/labelr/internal/tui/setup"
 	"github.com/spf13/cobra"
 )
 

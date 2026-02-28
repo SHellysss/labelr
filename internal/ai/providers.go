@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/pankajbeniwal/labelr/internal/config"
+	"github.com/Pankaj3112/labelr/internal/config"
 )
 
 type Provider struct {
@@ -37,6 +37,11 @@ var providers = map[string]Provider{
 		Name:    "Groq",
 		BaseURL: "https://api.groq.com/openai/v1",
 		EnvKey:  "GROQ_API_KEY",
+	},
+	"custom": {
+		Name:    "Custom (OpenAI-compatible)",
+		BaseURL: "", // user provides at setup time
+		EnvKey:  "",
 	},
 }
 
@@ -82,7 +87,7 @@ func ListProviders() []Provider {
 }
 
 // providerOrder is the fixed display order for provider selection.
-var providerOrder = []string{"openai", "deepseek", "groq", "ollama"}
+var providerOrder = []string{"openai", "deepseek", "groq", "ollama", "custom"}
 
 // ProviderNamesOrdered returns provider names in a fixed, deterministic order.
 func ProviderNamesOrdered() []string {

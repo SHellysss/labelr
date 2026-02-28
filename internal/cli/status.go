@@ -1,8 +1,8 @@
 package cli
 
 import (
-	"github.com/pankajbeniwal/labelr/internal/tui"
-	"github.com/pankajbeniwal/labelr/internal/tui/status"
+	"github.com/Pankaj3112/labelr/internal/tui"
+	"github.com/Pankaj3112/labelr/internal/tui/status"
 	"github.com/spf13/cobra"
 )
 

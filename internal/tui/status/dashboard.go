@@ -8,10 +8,10 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/pankajbeniwal/labelr/internal/config"
-	"github.com/pankajbeniwal/labelr/internal/db"
-	"github.com/pankajbeniwal/labelr/internal/service"
-	"github.com/pankajbeniwal/labelr/internal/tui"
+	"github.com/Pankaj3112/labelr/internal/config"
+	"github.com/Pankaj3112/labelr/internal/db"
+	"github.com/Pankaj3112/labelr/internal/service"
+	"github.com/Pankaj3112/labelr/internal/tui"
 )
 
 const refreshInterval = 5 * time.Second

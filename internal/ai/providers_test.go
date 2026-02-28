@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pankajbeniwal/labelr/internal/config"
+	"github.com/Pankaj3112/labelr/internal/config"
 )
 
 // boolPtr is a helper to create *bool values for test data.
@@ -44,7 +44,7 @@ func TestGetProviderUnknown(t *testing.T) {
 
 func TestProviderNamesOrdered(t *testing.T) {
 	names := ProviderNamesOrdered()
-	expected := []string{"openai", "deepseek", "groq", "ollama"}
+	expected := []string{"openai", "deepseek", "groq", "ollama", "custom"}
 	if len(names) != len(expected) {
 		t.Fatalf("got %d providers, want %d", len(names), len(expected))
 	}
@@ -57,8 +57,8 @@ func TestProviderNamesOrdered(t *testing.T) {
 
 func TestListProviders(t *testing.T) {
 	providers := ListProviders()
-	if len(providers) < 4 {
-		t.Errorf("expected at least 4 providers, got %d", len(providers))
+	if len(providers) < 5 {
+		t.Errorf("expected at least 5 providers, got %d", len(providers))
 	}
 }
 

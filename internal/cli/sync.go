@@ -7,11 +7,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pankajbeniwal/labelr/internal/config"
-	"github.com/pankajbeniwal/labelr/internal/db"
-	gmailpkg "github.com/pankajbeniwal/labelr/internal/gmail"
-	"github.com/pankajbeniwal/labelr/internal/tui"
-	tuisync "github.com/pankajbeniwal/labelr/internal/tui/sync"
+	"github.com/Pankaj3112/labelr/internal/config"
+	"github.com/Pankaj3112/labelr/internal/db"
+	gmailpkg "github.com/Pankaj3112/labelr/internal/gmail"
+	"github.com/Pankaj3112/labelr/internal/tui"
+	tuisync "github.com/Pankaj3112/labelr/internal/tui/sync"
 	"github.com/spf13/cobra"
 )
 

@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/pankajbeniwal/labelr/internal/db"
-	applog "github.com/pankajbeniwal/labelr/internal/log"
+	"github.com/Pankaj3112/labelr/internal/db"
+	applog "github.com/Pankaj3112/labelr/internal/log"
 )
 
 // GmailPoller is the interface for fetching new message IDs from Gmail.
@@ -49,7 +49,9 @@ func (p *Poller) Poll(ctx context.Context) error {
 	}
 
 	if newHistoryID > 0 {
-		p.store.SetState("history_id", strconv.FormatUint(newHistoryID, 10))
+		if err := p.store.SetState("history_id", strconv.FormatUint(newHistoryID, 10)); err != nil && p.logger != nil {
+			p.logger.Error("saving history_id: %v", err)
+		}
 	}
 
 	if p.logger != nil && len(messages) > 0 {

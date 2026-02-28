@@ -21,6 +21,10 @@ func (m *LaunchdManager) plistPath() string {
 }
 
 func (m *LaunchdManager) plistContent(binaryPath string) string {
+	home, _ := os.UserHomeDir()
+	logsDir := filepath.Join(home, ".labelr", "logs")
+	stderrPath := filepath.Join(logsDir, "stderr.log")
+
 	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -37,12 +41,18 @@ func (m *LaunchdManager) plistContent(binaryPath string) string {
     <key>KeepAlive</key>
     <true/>
     <key>StandardErrorPath</key>
-    <string>/tmp/labelr-stderr.log</string>
+    <string>%s</string>
 </dict>
-</plist>`, launchdLabel, binaryPath)
+</plist>`, launchdLabel, binaryPath, stderrPath)
 }
 
 func (m *LaunchdManager) Install(binaryPath string) error {
+	// Ensure logs directory exists for stderr output
+	home, _ := os.UserHomeDir()
+	if err := os.MkdirAll(filepath.Join(home, ".labelr", "logs"), 0700); err != nil {
+		return err
+	}
+
 	content := m.plistContent(binaryPath)
 	path := m.plistPath()
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {

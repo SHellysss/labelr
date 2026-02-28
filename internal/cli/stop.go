@@ -3,8 +3,8 @@ package cli
 import (
 	"fmt"
 
-	"github.com/pankajbeniwal/labelr/internal/service"
-	"github.com/pankajbeniwal/labelr/internal/ui"
+	"github.com/Pankaj3112/labelr/internal/service"
+	"github.com/Pankaj3112/labelr/internal/ui"
 	"github.com/spf13/cobra"
 )
 

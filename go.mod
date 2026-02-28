@@ -1,4 +1,4 @@
-module github.com/pankajbeniwal/labelr
+module github.com/Pankaj3112/labelr
 
 go 1.25.0
 

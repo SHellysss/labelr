@@ -1,8 +1,8 @@
 include .env
 export
 
-LDFLAGS := -X 'github.com/pankajbeniwal/labelr/internal/gmail.ClientID=$(GOOGLE_CLIENT_ID)' \
-           -X 'github.com/pankajbeniwal/labelr/internal/gmail.ClientSecret=$(GOOGLE_CLIENT_SECRET)'
+LDFLAGS := -X 'github.com/Pankaj3112/labelr/internal/gmail.ClientID=$(GOOGLE_CLIENT_ID)' \
+           -X 'github.com/Pankaj3112/labelr/internal/gmail.ClientSecret=$(GOOGLE_CLIENT_SECRET)'
 
 .PHONY: build run test clean release
 

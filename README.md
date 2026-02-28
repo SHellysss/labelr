@@ -15,7 +15,7 @@ No rules to write. No filters to maintain. Just labels that make sense.
 ## Features
 
 - **Set it and forget it** — runs in the background, starts on boot, labels emails as they arrive
-- **Works with your AI** — OpenAI, DeepSeek, Groq, or run fully local with Ollama
+- **Works with your AI** — OpenAI, DeepSeek, Groq, Ollama (local), or any OpenAI-compatible endpoint
 - **Your labels, your rules** — define custom categories with descriptions to guide the AI
 - **Catches up automatically** — handles sleep, reboots, and network outages gracefully
 - **Backlog support** — label your last 1, 7, or 30 days of email in one command
@@ -35,7 +35,7 @@ Or download a binary directly from the [releases page](https://github.com/Pankaj
 ### 1. Run the setup wizard
 
 ```bash
-labelr init
+labelr setup
 ```
 
 This walks you through everything interactively:
@@ -66,13 +66,12 @@ Label your recent email history. Supports `1d`, `7d`, or `30d`.
 ## Usage
 
 ```bash
-labelr init                  # First-time setup
+labelr setup                 # First-time setup wizard
 labelr start                 # Start the background service
 labelr stop                  # Stop the service
 labelr status                # Check if it's running and see queue stats
 labelr logs                  # Watch the live log output
 labelr sync --last <period>  # Label past emails (1d, 7d, 30d)
-labelr config                # Change settings after setup
 labelr uninstall             # Remove everything
 ```
 
@@ -84,6 +83,7 @@ labelr uninstall             # Remove everything
 | **Groq** | Free tier available | Cloud | Very fast | Get an API key at [groq.com](https://groq.com) |
 | **DeepSeek** | Very cheap | Cloud | Fast | Get an API key at [deepseek.com](https://deepseek.com) |
 | **OpenAI** | Pay per use | Cloud | Fast | Get an API key at [platform.openai.com](https://platform.openai.com) |
+| **Custom** | Varies | Varies | Varies | Any OpenAI-compatible API — provide your own base URL |
 
 Token usage is minimal — each email costs roughly 100-300 input tokens and ~10 output tokens. Even with heavy email volume, costs stay well under $1/month with cloud providers.
 
@@ -101,7 +101,7 @@ The default labels work well out of the box:
 | **Personal** | Messages from friends and family |
 | **Automated** | Notifications, alerts, system emails |
 
-You can fully customize these during `labelr init` or later with `labelr config`. Write clear descriptions for each label — the AI uses them to decide how to classify each email.
+You can fully customize these during `labelr setup`. Write clear descriptions for each label — the AI uses them to decide how to classify each email.
 
 ## How It Works
 
@@ -145,7 +145,7 @@ labelr is designed to handle real-world conditions:
 git clone https://github.com/Pankaj3112/labelr.git
 cd labelr
 make build
-./bin/labelr init
+./bin/labelr setup
 ```
 
 Requires Go 1.25+.
