@@ -48,8 +48,7 @@ fi
 
 chmod +x "$INSTALL_DIR/labelr"
 
-echo "labelr installed to $INSTALL_DIR/labelr"
+echo "labelr $LATEST installed to $INSTALL_DIR/labelr"
 echo ""
 echo "Get started:"
-echo "  labelr init     # first-time setup"
-echo "  labelr start    # run in background"
+echo "  labelr setup    # first-time setup"
