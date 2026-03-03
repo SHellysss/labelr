@@ -38,6 +38,11 @@ var providers = map[string]Provider{
 		BaseURL: "https://api.groq.com/openai/v1",
 		EnvKey:  "GROQ_API_KEY",
 	},
+	"cerebras": {
+		Name:    "Cerebras",
+		BaseURL: "https://api.cerebras.ai/v1",
+		EnvKey:  "CEREBRAS_API_KEY",
+	},
 	"custom": {
 		Name:    "Custom (OpenAI-compatible)",
 		BaseURL: "", // user provides at setup time
@@ -68,6 +73,7 @@ var modelsDevKey = map[string]string{
 	"openai":   "openai",
 	"deepseek": "deepseek",
 	"groq":     "groq",
+	"cerebras": "cerebras",
 }
 
 func GetProvider(name string) (*Provider, error) {
@@ -87,7 +93,7 @@ func ListProviders() []Provider {
 }
 
 // providerOrder is the fixed display order for provider selection.
-var providerOrder = []string{"openai", "deepseek", "groq", "ollama", "custom"}
+var providerOrder = []string{"openai", "deepseek", "groq", "cerebras", "ollama", "custom"}
 
 // ProviderNamesOrdered returns provider names in a fixed, deterministic order.
 func ProviderNamesOrdered() []string {

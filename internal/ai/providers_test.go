@@ -44,7 +44,7 @@ func TestGetProviderUnknown(t *testing.T) {
 
 func TestProviderNamesOrdered(t *testing.T) {
 	names := ProviderNamesOrdered()
-	expected := []string{"openai", "deepseek", "groq", "ollama", "custom"}
+	expected := []string{"openai", "deepseek", "groq", "cerebras", "ollama", "custom"}
 	if len(names) != len(expected) {
 		t.Fatalf("got %d providers, want %d", len(names), len(expected))
 	}
