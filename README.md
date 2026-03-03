@@ -56,6 +56,7 @@ Setup starts the service for you. You only need `start` after a manual `stop`.
 |----------|------|---------|-------|
 | **Ollama** | Free | Local | Depends on hardware |
 | **Groq** | Free tier | Cloud | Very fast |
+| **Cerebras** | Free tier | Cloud | Very fast |
 | **DeepSeek** | Very cheap | Cloud | Fast |
 | **OpenAI** | Pay per use | Cloud | Fast |
 | **Custom** | Varies | Varies | Varies |
