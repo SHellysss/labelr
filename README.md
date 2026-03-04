@@ -6,8 +6,16 @@ Automatically organize your Gmail inbox using AI. labelr runs in the background,
 
 ## Install
 
+**macOS / Linux:**
+
 ```bash
 curl -sSL https://raw.githubusercontent.com/Pankaj3112/labelr/main/install.sh | sh
+```
+
+**Windows (PowerShell):**
+
+```powershell
+irm https://raw.githubusercontent.com/Pankaj3112/labelr/main/install.ps1 | iex
 ```
 
 Or grab a binary from the [releases page](https://github.com/Pankaj3112/labelr/releases).
