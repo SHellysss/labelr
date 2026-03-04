@@ -10,9 +10,11 @@ const taskName = "labelr"
 type TaskSchedulerManager struct{}
 
 func (m *TaskSchedulerManager) Install(binaryPath string) error {
+	// Use PowerShell to launch the daemon without a visible console window.
+	tr := `powershell -WindowStyle Hidden -Command "& '` + binaryPath + `' daemon"`
 	return exec.Command("schtasks", "/create",
 		"/tn", taskName,
-		"/tr", binaryPath+" daemon",
+		"/tr", tr,
 		"/sc", "onlogon",
 		"/rl", "LIMITED",
 		"/f",
