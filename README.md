@@ -85,6 +85,8 @@ All data stays on your machine in `~/.labelr/`. External calls go only to Gmail 
 
 macOS (launchd), Linux (systemd), Windows (Task Scheduler). Auto-starts on boot.
 
+> **Windows:** `labelr start`, `labelr stop`, and `labelr uninstall` require an Administrator terminal (right-click your terminal → Run as Administrator).
+
 ## Building from Source
 
 ```bash

@@ -1,6 +1,7 @@
 package service
 
 import (
+	"fmt"
 	"os/exec"
 	"strings"
 )
@@ -12,26 +13,38 @@ type TaskSchedulerManager struct{}
 func (m *TaskSchedulerManager) Install(binaryPath string) error {
 	// Use PowerShell to launch the daemon without a visible console window.
 	tr := `powershell -WindowStyle Hidden -Command "& '` + binaryPath + `' daemon"`
-	return exec.Command("schtasks", "/create",
+	if err := exec.Command("schtasks", "/create",
 		"/tn", taskName,
 		"/tr", tr,
 		"/sc", "onlogon",
 		"/rl", "LIMITED",
 		"/f",
-	).Run()
+	).Run(); err != nil {
+		return fmt.Errorf("%w — try running your terminal as Administrator", err)
+	}
+	return nil
 }
 
 func (m *TaskSchedulerManager) Uninstall() error {
 	m.Stop()
-	return exec.Command("schtasks", "/delete", "/tn", taskName, "/f").Run()
+	if err := exec.Command("schtasks", "/delete", "/tn", taskName, "/f").Run(); err != nil {
+		return fmt.Errorf("%w — try running your terminal as Administrator", err)
+	}
+	return nil
 }
 
 func (m *TaskSchedulerManager) Start() error {
-	return exec.Command("schtasks", "/run", "/tn", taskName).Run()
+	if err := exec.Command("schtasks", "/run", "/tn", taskName).Run(); err != nil {
+		return fmt.Errorf("%w — try running your terminal as Administrator", err)
+	}
+	return nil
 }
 
 func (m *TaskSchedulerManager) Stop() error {
-	return exec.Command("schtasks", "/end", "/tn", taskName).Run()
+	if err := exec.Command("schtasks", "/end", "/tn", taskName).Run(); err != nil {
+		return fmt.Errorf("%w — try running your terminal as Administrator", err)
+	}
+	return nil
 }
 
 func (m *TaskSchedulerManager) IsRunning() (bool, error) {
