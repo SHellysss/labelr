@@ -78,9 +78,9 @@ func (m *LaunchdManager) Stop() error {
 }
 
 func (m *LaunchdManager) IsRunning() (bool, error) {
-	out, err := exec.Command("launchctl", "list").Output()
+	out, err := exec.Command("launchctl", "list", launchdLabel).Output()
 	if err != nil {
-		return false, err
+		return false, nil // job not loaded
 	}
-	return strings.Contains(string(out), launchdLabel), nil
+	return strings.Contains(string(out), "\"PID\""), nil
 }

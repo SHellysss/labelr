@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"log"
 	"os/signal"
 	"syscall"
 	"time"
@@ -24,7 +25,14 @@ func NewDaemonCmd() *cobra.Command {
 	}
 }
 
+const (
+	initRetryBase = 5 * time.Second
+	initRetryMax  = 2 * time.Minute
+)
+
 func runDaemon(cmd *cobra.Command, args []string) error {
+	// Phase 1: Non-retryable init — fatal errors exit immediately.
+
 	// Load config
 	cfg, err := config.Load(config.DefaultPath())
 	if err != nil {
@@ -45,14 +53,37 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	}
 	defer store.Close()
 
-	// Create Gmail client
-	ts, err := gmailpkg.TokenSource(config.CredentialsPath())
-	if err != nil {
-		return fmt.Errorf("creating Gmail token source: %w", err)
-	}
-	gmailClient, err := gmailpkg.NewClient(cmd.Context(), ts)
-	if err != nil {
-		return fmt.Errorf("creating Gmail client: %w", err)
+	// Phase 2: Retryable init — transient errors (network, OAuth) are retried
+	// with exponential backoff so the process stays alive and launchd's throttle
+	// never triggers.
+
+	ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	var gmailClient *gmailpkg.Client
+	backoff := initRetryBase
+	for {
+		ts, tsErr := gmailpkg.TokenSource(config.CredentialsPath())
+		if tsErr == nil {
+			gmailClient, err = gmailpkg.NewClient(ctx, ts)
+			if err == nil {
+				break
+			}
+			tsErr = err
+		}
+
+		log.Printf("daemon init failed (retrying in %s): %v", backoff, tsErr)
+
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("interrupted during init retry: %w", ctx.Err())
+		case <-time.After(backoff):
+		}
+
+		backoff *= 2
+		if backoff > initRetryMax {
+			backoff = initRetryMax
+		}
 	}
 
 	// Create AI classifier
@@ -64,10 +95,6 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	worker := daemon.NewWorker(store, gmailClient, classifier, gmailClient, logger)
 
 	d := daemon.New(store, poller, worker, logger, time.Duration(cfg.PollInterval)*time.Second)
-
-	// Run with graceful shutdown
-	ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
 
 	return d.Run(ctx)
 }

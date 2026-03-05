@@ -22,6 +22,15 @@ func (m *TaskSchedulerManager) Install(binaryPath string) error {
 	).Run(); err != nil {
 		return fmt.Errorf("%w — try running your terminal as Administrator", err)
 	}
+
+	// Best-effort: configure restart-on-failure so the daemon auto-restarts
+	// if the process crashes (schtasks CLI doesn't expose these settings).
+	psCmd := `$t = Get-ScheduledTask -TaskName '` + taskName + `'; ` +
+		`$t.Settings.RestartCount = 999; ` +
+		`$t.Settings.RestartInterval = 'PT1M'; ` +
+		`Set-ScheduledTask -InputObject $t`
+	exec.Command("powershell", "-NoProfile", "-Command", psCmd).Run()
+
 	return nil
 }
 
